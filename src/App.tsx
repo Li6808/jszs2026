@@ -245,7 +245,7 @@ function App() {
         {page === 'homework' && <HomeworkPage toast={toast} openQr={openQr} />}
       </main>
 
-      {isHome && (
+      {pageStack.length <= 1 && (
         <nav className="bottom-nav">
           <button className={`nav-item ${page === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}><span className="nav-icon">🏠</span><span>首页</span></button>
           <button className={`nav-item ${page === 'schedule' ? 'active' : ''}`} onClick={() => navigate('schedule')}><span className="nav-icon">📋</span><span>课表</span></button>
