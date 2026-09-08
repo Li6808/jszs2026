@@ -54,11 +54,23 @@ npm run preview
 
 ## GitHub Pages 部署
 
-1. 将代码推送到 GitHub 仓库
-2. 打开仓库 Settings -> Pages
-3. Source 选择 "Deploy from a branch"
-4. Branch 选择 "main"，文件夹选择 "/ (root)"
-5. 等待 1-2 分钟后即可访问
+已部署到：**https://li6808.github.io/jszs2026/**
+
+### 一键部署
+
+```bash
+./deploy.sh
+```
+
+脚本会自动：构建 -> 推送到 gh-pages 分支 -> 自动生效（1-2 分钟）。
+
+### 手动部署
+
+```bash
+npm run build
+cd dist
+git add -A && git commit -m "deploy" && git push -f origin gh-pages
+```
 
 ## 数据存储
 
