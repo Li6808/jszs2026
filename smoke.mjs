@@ -1035,7 +1035,8 @@ check('★「标记为」：选中的那个带 ✓、实心、且只有一个', 
     record: rec, poems, students: list, brush, setBrush: noop,
     onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, undoDepth: 0, toast: noop,
   }));
-  const chips = h.match(/<div class="rc-brush-chip[^"]*"[^>]*>[^<]*<\/div>/g) || [];
+  // v31 起 chip 内部多了 <i>✓</i> 与两个 <span>（完整名 / 单字名），内容里会出现 '<'
+  const chips = h.match(/<div class="rc-brush-chip[^"]*"[^>]*>.*?<\/div>/g) || [];
   if (chips.length !== STATUS_META.length) throw new Error(`状态按钮应为 ${STATUS_META.length} 个，实际 ${chips.length}`);
   const active = chips.filter(c => c.includes('active'));
   if (active.length !== 1) throw new Error('选中的状态应恰好 1 个，实际 ' + active.length);
@@ -1069,6 +1070,35 @@ check('选中态样式：放大 + 加粗 + 光环（不是只换个底色）', (
     if (!pp.includes(want)) throw new Error('.rc-pp-btn.active 缺少 ' + want);
   }
   return '实心 + 放大 + 光环 + 未选中淡出';
+});
+
+/* v31：用户反馈「待补背」被挤到第二行。
+   根因是四个 chip 各自是 brush-bar 的 flex item，窄屏会在 chip 之间断行。
+   这里锁住三件事：① 四个 chip 在同一个 nowrap 容器里；② 完整名与单字名都渲染；
+   ③ 窄屏媒体查询会把完整名换成单字。 */
+check('★ V31：四个状态永远站同一行（同容器 + nowrap + 窄屏单字回退）', () => {
+  const list = students.map(st => ({ st, passed: 0, redo: 0, left: poems.length, total: poems.length, counted: true }));
+  const h = R(React.createElement(MatrixView, {
+    record: rec, poems, students: list, brush: 'todo', setBrush: noop,
+    onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, undoDepth: 0, toast: noop,
+  }));
+  const g = h.match(/<span class="rc-brush-group">([\s\S]*?)<\/span>\s*<button/);
+  if (!g) throw new Error('没有 rc-brush-group 容器 —— 四个状态还是各自独立的 flex item，窄屏会被拆行');
+  const inner = g[1];
+  const n = (inner.match(/rc-brush-chip/g) || []).length;
+  if (n !== STATUS_META.length) throw new Error(`容器内应有 ${STATUS_META.length} 个状态，实际 ${n}`);
+  for (const m of STATUS_META) {
+    if (!inner.includes(`>${m.label}<`)) throw new Error('容器内缺完整名：' + m.label);
+    if (!inner.includes(`>${m.short}<`)) throw new Error('容器内缺单字名：' + m.short);
+  }
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const gi = css.lastIndexOf('.rc-brush-group');
+  if (!css.slice(gi, css.indexOf('}', gi)).includes('nowrap')) throw new Error('.rc-brush-group 没有 flex-wrap: nowrap，仍然会拆行');
+  const mi = css.lastIndexOf('@media (max-width: 360px)');
+  if (mi < 0 || !css.slice(mi, mi + 400).includes('.rc-brush-t { display: none; }')) {
+    throw new Error('窄屏没有切单字的兜底样式');
+  }
+  return `${n} 个状态同容器 + nowrap + ≤360px 单字回退`;
 });
 
 check('备份文件名「导出」与「分享」一致', () => {

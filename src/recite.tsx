@@ -1383,25 +1383,31 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
   return (
     <div>
       <div className="rc-brush-bar">
+        {/* 四个状态包进一个 nowrap 容器（v31）：换行只可能发生在「整组之前 / 之后」，
+            不会再把「待补背」单独挤到第二行。极窄屏（≤360px）由 CSS 切成单字「未/背/默/补」。 */}
         <span className="rc-brush-label">标记为</span>
-        {STATUS_META.map(m => {
-          // 选中的那个做成实心色块 + 白字 + 光环，和没选中的拉开对比，
-          // 免得老师点完不确定现在到底选的是哪个状态。
-          const on = brush === m.value;
-          return (
-            <div key={m.value}
-              className={`rc-brush-chip ${on ? 'active' : ''}`}
-              style={on
-                ? {
-                  color: '#fff', background: m.color, borderColor: m.color,
-                  boxShadow: `0 0 0 2.5px var(--glass-light), 0 0 0 5.5px ${m.color}55, 0 3px 12px rgba(0,0,0,0.20)`,
-                }
-                : { color: m.color, background: m.bg, borderColor: m.color }}
-              onClick={() => setBrush(m.value)}>
-              {on ? '✓ ' : ''}{m.label}
-            </div>
-          );
-        })}
+        <span className="rc-brush-group">
+          {STATUS_META.map(m => {
+            // 选中的那个做成实心色块 + 白字 + 光环，和没选中的拉开对比，
+            // 免得老师点完不确定现在到底选的是哪个状态。
+            const on = brush === m.value;
+            return (
+              <div key={m.value}
+                className={`rc-brush-chip ${on ? 'active' : ''}`}
+                style={on
+                  ? {
+                    color: '#fff', background: m.color, borderColor: m.color,
+                    boxShadow: `0 0 0 2.5px var(--glass-light), 0 0 0 5.5px ${m.color}55, 0 3px 12px rgba(0,0,0,0.20)`,
+                  }
+                  : { color: m.color, background: m.bg, borderColor: m.color }}
+                onClick={() => setBrush(m.value)}>
+                {on && <i className="rc-brush-ck">✓</i>}
+                <span className="rc-brush-t">{m.label}</span>
+                <span className="rc-brush-s">{m.short}</span>
+              </div>
+            );
+          })}
+        </span>
         <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}>
           ↶ 撤销{undoDepth > 0 ? `(${undoDepth})` : ''}
         </button>
