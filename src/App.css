@@ -2387,3 +2387,133 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   .cloud-found > div > b { color: #34C759; }
 }
 
+
+/* ============================================================
+   V29 · 版本号与更新记录
+   ============================================================ */
+
+/* 个人设置标题右侧的版本徽章 */
+.app-ver-badge {
+  margin-left: auto;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.4px;
+  padding: 3px 9px; border-radius: var(--r-full);
+  color: #fff;
+  background: linear-gradient(135deg, #0A84FF, #5E5CE6);
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.32);
+}
+
+/* 折叠标题右侧的小号版本号 */
+.sec-ver {
+  font-style: normal; font-size: 11.5px; font-weight: 800;
+  color: var(--text-3);
+  background: var(--glass-soft);
+  border: 0.5px solid var(--glass-line);
+  border-radius: var(--r-full);
+  padding: 2px 8px;
+}
+
+/* 当前版本大号展示 */
+.ver-hero {
+  display: flex; align-items: center; gap: 14px;
+  margin: 12px 0 14px; padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.12), rgba(94, 92, 230, 0.10));
+  border: 0.5px solid rgba(10, 132, 255, 0.28);
+}
+.ver-hero-num {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.5px; line-height: 1;
+  color: #0A84FF; font-variant-numeric: tabular-nums;
+}
+.ver-hero-meta { font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+.ver-hero-meta b { color: var(--text); }
+
+/* 每个版本的更新条目 */
+.ver-rel {
+  padding: 11px 13px; margin-bottom: 8px;
+  border-radius: var(--r-sm);
+  background: var(--glass-soft);
+  border: 0.5px solid var(--rc-line);
+}
+.ver-rel.cur { background: rgba(10, 132, 255, 0.07); border-color: rgba(10, 132, 255, 0.42); }
+.ver-rel-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.ver-rel-head b { color: var(--text); }
+.ver-tag {
+  font-style: normal; font-size: 10.5px; font-weight: 700;
+  color: #fff; background: #0A84FF; border-radius: var(--r-full); padding: 2px 7px;
+}
+.ver-rel-date { margin-left: auto; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ver-list { margin: 7px 0 0; padding-left: 17px; }
+.ver-list li { font-size: 12.5px; line-height: 1.7; color: var(--text-3); }
+
+/* 首页底部的版本号 */
+.home-ver {
+  margin: 16px 0 6px; text-align: center;
+  font-size: 11.5px; color: var(--text-3);
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+}
+.home-ver b { color: #0A84FF; font-weight: 800; }
+
+/* ============================================================
+   V29 · 「标记为」等状态选择：选中态一眼能看出来
+   思路是拉开对比 —— 没选中的淡下去，选中的变实心 + 放大 + 光环 + ✓
+   ============================================================ */
+
+.rc-brush-bar { gap: 7px; }
+.rc-brush-label { font-weight: 700; margin-right: 4px; }
+
+.rc-brush-chip {
+  font-size: 12.5px; padding: 7px 13px;
+  opacity: 0.7;
+}
+.rc-brush-chip.active {
+  opacity: 1;
+  font-weight: 800;
+  transform: scale(1.08);
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 0 2.5px var(--glass-light), 0 0 0 5.5px rgba(0, 0, 0, 0.10), 0 3px 12px rgba(0, 0, 0, 0.20);
+}
+
+/* 学生档案里每一篇的四个状态按钮 */
+.rc-pp-btn { transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.rc-pp-btn.active {
+  font-weight: 800;
+  transform: scale(1.06);
+  box-shadow: 0 1px 7px rgba(0, 0, 0, 0.24);
+}
+
+/* 导入方式 / 数据存放方式这类分段选择 */
+.rc-seg-item { transition: background var(--t-fast), color var(--t-fast); }
+.rc-seg-item.active {
+  font-weight: 800;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.16);
+}
+
+/* ============================================================
+   V29 · 「用备份文件搬数据」三步说明
+   ============================================================ */
+.bk-move {
+  margin-top: 12px; padding: 12px 13px;
+  border-radius: var(--r-md);
+  background: rgba(10, 132, 255, 0.07);
+  border: 0.5px solid rgba(10, 132, 255, 0.26);
+}
+.bk-move-title { font-size: 13px; font-weight: 800; color: #0A84FF; margin-bottom: 4px; }
+.bk-move-row {
+  display: flex; gap: 9px; margin-top: 8px;
+  font-size: 12.5px; line-height: 1.6; color: var(--text-3);
+}
+.bk-move-row b { color: var(--text); }
+.bk-move-no {
+  flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px;
+  border-radius: 50%; background: #0A84FF; color: #fff;
+  font-size: 11px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.bk-move-note { margin-top: 9px; font-size: 11.5px; color: var(--text-3); }
+
+@media (prefers-color-scheme: dark) {
+  .ver-hero-num, .home-ver b { color: #64B5FF; }
+  .bk-move { background: rgba(10, 132, 255, 0.14); }
+  .bk-move-title, .bk-move-no { color: #64B5FF; }
+  .bk-move-no { background: #0A84FF; color: #fff; }
+}

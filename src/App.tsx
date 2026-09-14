@@ -19,11 +19,12 @@ import type { StorageIssue } from './storage';
 import {
   exportBackup, parseBackup, applyBackup, summarize, backupAsText,
   dataSizeKB, daysSinceBackup, exportCorruptRaw, describeScope, BACKUP_EXCLUDES,
-  getPreImportSnapshot, restorePreImport, snapshotBeforeImport,
+  getPreImportSnapshot, restorePreImport, snapshotBeforeImport, shareBackup,
 } from './backup';
 import { makeQrDataUrl } from './qr';
 import { CloudPanel } from './cloudPanel';
 import { probeSameOrigin, bestShareUrl, setShareOrigin, getShareOrigin } from './cloud';
+import { APP_VERSION, APP_BUILD, CHANGELOG } from './version';
 import './App.css';
 
 type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework' | 'recite';
@@ -438,6 +439,10 @@ function HomePage({ navigate, moduleOrder }: { navigate: (p: Page) => void; modu
             </div>
           );
         })}
+      </div>
+      {/* 版本号放在首页最下面：一眼能看出自己用的是哪一版 */}
+      <div className="home-ver" onClick={() => navigate('settings')}>
+        教师助手 <b>{APP_VERSION}</b> · 更新于 {APP_BUILD} · 点这里看更新内容
       </div>
     </div>
   );
@@ -902,6 +907,47 @@ function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
 }
 
 /* ============ 设置（含模块排序） ============ */
+/* ============ 版本与更新记录 ============
+   版本号与更新内容都写在 src/version.ts，发版时只改那一个文件。
+   这里只负责展示 —— 免得版本号散落在多处、改漏一个用户就看不出区别。 */
+export function VersionSection({ defaultOpen = false }: { defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="settings-section">
+      <div className={`section-header ${open ? '' : 'collapsed'}`} onClick={() => setOpen(!open)}>
+        <span>🆕 版本与更新记录</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <em className="sec-ver">{APP_VERSION}</em>
+          <span>{open ? '▼' : '▶'}</span>
+        </span>
+      </div>
+      {open && (
+        <div className="section-body">
+          <div className="ver-hero">
+            <div className="ver-hero-num">{APP_VERSION}</div>
+            <div className="ver-hero-meta">
+              <div>更新于 <b>{APP_BUILD}</b></div>
+              <div className="hint">和别人对一下这个号，就知道两台设备用的是不是同一版。</div>
+            </div>
+          </div>
+          {CHANGELOG.map((r, i) => (
+            <div key={r.version} className={`ver-rel ${i === 0 ? 'cur' : ''}`}>
+              <div className="ver-rel-head">
+                <b>{r.version}</b>
+                {i === 0 && <em className="ver-tag">当前版本</em>}
+                <span className="ver-rel-date">{r.date}</span>
+              </div>
+              <ul className="ver-list">
+                {r.items.map((t, j) => <li key={j}>{t}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
   // 学校名称默认留空占位（"××中学"），由使用者自己在设置里填写
   const defaultSchoolName = '××中学';
@@ -991,6 +1037,16 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
     }
   };
 
+  /** 把备份文件直接发出去（手机发微信 / 隔空投送），电脑上会自动退回下载 */
+  const doShareBackup = () => {
+    void shareBackup().then(r => {
+      setBackupInfo(getBackupMeta());
+      if (r === 'shared') toast('✅ 备份文件已发出（记得在微信里选「文件传输助手」）');
+      else if (r === 'downloaded') toast('这台设备的浏览器不支持直接分享，已改成下载文件');
+      else toast('❌ 分享失败，请改用下面的「导出备份文件」');
+    });
+  };
+
   const doCopyBackup = () => {
     const text = backupAsText();
     navigator.clipboard?.writeText(text)
@@ -1029,7 +1085,7 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
   return (
     <div className="page">
       <div className="card">
-        <div className="card-header"><span className="header-icon">⚙️</span><span>个人设置</span></div>
+        <div className="card-header"><span className="header-icon">⚙️</span><span>个人设置</span><span className="app-ver-badge">{APP_VERSION}</span></div>
         <div className="card-body">
           {/* PWA安装引导 */}
           <div className="settings-section">
@@ -1151,8 +1207,33 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
                   </div>
                 </div>
 
-                <button className="btn btn-primary btn-block" onClick={doExportBackup}>
+                <div className="bk-move">
+                  <div className="bk-move-title">📱 ↔ 💻 手机上的数据怎么搬到电脑（不用连服务器、不用同一个 Wi-Fi）</div>
+                  <div className="bk-move-row">
+                    <span className="bk-move-no">1</span>
+                    <div>在<b>手机</b>上打开「个人设置 → 💾 数据备份与恢复」，点 <b>📤 分享备份</b>，
+                      选微信的<b>「文件传输助手」</b>（苹果手机也可以选隔空投送）</div>
+                  </div>
+                  <div className="bk-move-row">
+                    <span className="bk-move-no">2</span>
+                    <div>在<b>电脑</b>上打开教师助手，还是这个区块，点 <b>⬆️ 选择备份文件并导入</b>，
+                      把刚收到的那个 .json 文件选上</div>
+                  </div>
+                  <div className="bk-move-row">
+                    <span className="bk-move-no">3</span>
+                    <div>导入方式选 <b>合并（推荐）</b> —— 电脑上原来的数据一条都不会丢</div>
+                  </div>
+                  <div className="bk-move-note">
+                    反方向搬（电脑 → 手机）步骤一样，只是「导出」和「导入」换个地方点。
+                    这是最省事的一条路：不装服务器、不用两台设备连同一个网络、也不用记账号密码。
+                  </div>
+                </div>
+
+                <button className="btn btn-primary btn-block" style={{ marginTop: 12 }} onClick={doExportBackup}>
                   ⬇️ 导出备份文件（.json）
+                </button>
+                <button className="btn btn-outline btn-block" style={{ marginTop: 8 }} onClick={doShareBackup}>
+                  📤 分享备份（手机上直接发到微信 / 隔空投送）
                 </button>
 
                 <div className="bk-scope">
@@ -1231,6 +1312,8 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
               </div>
             )}
           </div>
+          <VersionSection />
+
           <div className="btn-row">
             <button className="btn btn-primary" onClick={save}>💾 保存设置</button>
             <button className="btn btn-secondary" onClick={() => { setName('张××'); setSchoolName('××中学'); setSemesterName(''); setStartSchoolDate('2026-03-04'); setScheduleText(`星期一 晨读 初一(1)语早\n星期一 第2节 初二(1)语文\n星期一 第4节 初一(1)语文\n星期一 第5节 初一(1)语文\n星期二 晨读 初一(1)语早\n星期二 第1节 初二(1)语文\n星期二 第2节 初二(1)语文\n星期三 晨读 初二(1)语早\n星期三 第1节 初一(1)语文\n星期三 第2节 初二(1)语文\n星期三 第3节 初一(1)语文\n星期四 第2节 初一(1)语文\n星期四 第3节 初一(1)语文\n星期四 第4节 初二(1)语文\n星期五 第1节 初一(1)语文\n星期五 第2节 初一(1)语文\n星期五 第5节 初二(1)语文`); setPeriodNames(getDefaultPeriodNames().join('\n')); }}>📖 加载示例</button>

@@ -93,11 +93,17 @@ export function buildBackup(): BackupFile {
 
 const PREF_KEY = 'teacher_backup_prefix';
 
+/** 备份文件名（「导出」和「分享」共用同一套命名，用户拿到手认得出来） */
+export function backupFileName(): string {
+  let prefix = '教师助手';
+  try { prefix = localStorage.getItem(PREF_KEY) || '教师助手'; } catch { /* ignore */ }
+  return `${prefix}_数据备份_${todayStamp()}.json`;
+}
+
 /** 导出为文件(返回文件名);prefix 可在设置里改成教师姓名 */
 export function exportBackup(): string {
   const bak = buildBackup();
-  const prefix = localStorage.getItem(PREF_KEY) || '教师助手';
-  const name = `${prefix}_数据备份_${todayStamp()}.json`;
+  const name = backupFileName();
   const blob = new Blob([JSON.stringify(bak, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -109,6 +115,38 @@ export function exportBackup(): string {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   markBackedUp();
   return name;
+}
+
+/**
+ * 直接把备份**文件**丢给系统分享面板。
+ * 手机上点一下就能选「微信 → 文件传输助手」或隔空投送，
+ * 比「先下载到文件 App，再去微信里翻出来发」少好几步 —— 手机↔电脑搬数据靠它。
+ *
+ * 返回 'downloaded' 表示这台设备的浏览器不支持分享文件（多数电脑浏览器都不支持），
+ * 此时内部已经自动退回「下载文件」，调用方只需提示用户。
+ */
+export async function shareBackup(): Promise<'shared' | 'downloaded' | 'failed'> {
+  const nav = navigator as any;
+  try {
+    if (typeof File !== 'undefined' && typeof nav?.share === 'function' && typeof nav?.canShare === 'function') {
+      const file = new File([JSON.stringify(buildBackup())], backupFileName(), { type: 'application/json' });
+      if (nav.canShare({ files: [file] })) {
+        await nav.share({ files: [file], title: '教师助手数据备份' });
+        markBackedUp();
+        return 'shared';
+      }
+    }
+  } catch (e: any) {
+    // 用户在分享面板里点了「取消」—— 不算失败，也不要再偷偷下载一份
+    if (e && e.name === 'AbortError') return 'shared';
+    // 其它异常（没有可分享的 App 等）→ 落到下面的下载
+  }
+  try {
+    exportBackup();
+    return 'downloaded';
+  } catch {
+    return 'failed';
+  }
 }
 
 /**

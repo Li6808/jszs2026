@@ -1,20 +1,23 @@
 /* 冒烟测试:用 react-dom/server 真实渲染背诵模块,捕捉初始渲染期运行时报错 */
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { RecitePage, ClassEditor, ClassDetail, QuickCheck, isPassed } from './src/recite.tsx';
-import App from './src/App.tsx';
+import { RecitePage, ClassEditor, ClassDetail, QuickCheck, MatrixView, STATUS_META, isPassed } from './src/recite.tsx';
+import App, { VersionSection } from './src/App.tsx';
+import { readFileSync } from 'node:fs';
 import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } from './src/reciteData.ts';
 import {
   buildPoemsFromPreset, genId, importStudentsFromText, importPoemsFromText, parseQuizText,
   getReciteRecords, saveReciteRecord, clearUndo, pushUndo, popUndo, getUndoStack,
   pickWeightedStudent, isCounted, getData, mutateRecite, setData, clearAll,
   getStorageIssue, onStorageIssue, isReadOnly, resetAfterCorruption,
-  normalizeModuleOrder, getModuleOrder,
+  normalizeModuleOrder, getModuleOrder, getBackupMeta,
 } from './src/storage.ts';
 import {
   buildBackup, parseBackup, mergeIntoCurrent, summarize, describeScope,
   applyBackup, snapshotBeforeImport, getPreImportSnapshot, restorePreImport, clearPreImportSnapshot,
+  shareBackup, backupFileName,
 } from './src/backup.ts';
+import { APP_VERSION, APP_BUILD, CHANGELOG } from './src/version.ts';
 import { makeQrDataUrl } from './src/qr.ts';
 import { CloudPanel } from './src/cloudPanel.tsx';
 import {
@@ -703,7 +706,9 @@ check('存放方式默认是「只在这台设备」，并说明代价', () => {
   if (!h.includes('自己电脑做服务器')) throw new Error('缺少局域网页签');
   if (!h.includes('公网服务器')) throw new Error('缺少公网页签');
   if (!h.includes('什么都不用设置')) throw new Error('未说明默认即可用');
-  if (!h.includes('都会全丢')) throw new Error('未讲清丢失风险');
+  if (!h.includes('都会让本机数据全丢')) throw new Error('未讲清丢失风险');
+  // v29：本机模式最要紧的一句是「怎么把数据搬到另一台设备」，必须在这里就告诉用户
+  if (!h.includes('分享备份')) throw new Error('未给出「不用连服务器」的搬数据办法');
   return '三选一完整，默认本地';
 });
 
@@ -975,6 +980,155 @@ check('撤销快照不进备份文件（免得备份越滚越大）', () => {
   if (raw.includes('teacher_preimport_snapshot')) throw new Error('快照被写进了备份文件');
   return '备份文件不含撤销快照';
 });
+
+console.log('\n[14] 版本号 / 更新记录 / 分享备份 / 「标记为」选中态');
+
+check('版本号与更新记录自洽', () => {
+  // 别写死字面量：发版时只改 version.ts，测试不用跟着回来改
+  if (!/^V\d+$/.test(APP_VERSION)) throw new Error('版本号格式应为 V+数字，实际 ' + APP_VERSION);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(APP_BUILD)) throw new Error('发布日期格式不对：' + APP_BUILD);
+  if (CHANGELOG.length === 0) throw new Error('更新记录为空');
+  if (CHANGELOG[0].version !== APP_VERSION) throw new Error('更新记录第一条必须是当前版本');
+  const seen = new Set();
+  for (const r of CHANGELOG) {
+    if (!/^V\d+$/.test(r.version)) throw new Error('版本号格式不对：' + r.version);
+    if (seen.has(r.version)) throw new Error('重复的版本号：' + r.version);
+    seen.add(r.version);
+    if (!r.items || r.items.length === 0) throw new Error(`${r.version} 没写更新内容`);
+    for (const it of r.items) {
+      if (typeof it !== 'string' || it.length < 8) throw new Error(`${r.version} 的更新内容太短：「${it}」`);
+    }
+  }
+  return `${APP_VERSION}（${APP_BUILD}）· 收录 ${CHANGELOG.length} 个版本 · 本版 ${CHANGELOG[0].items.length} 条`;
+});
+
+check('★ 个人设置里能看到版本号与更新内容', () => {
+  const h = R(React.createElement(VersionSection, { defaultOpen: true }));
+  if (!h.includes(APP_VERSION)) throw new Error('没显示版本号');
+  if (!h.includes('版本与更新记录')) throw new Error('缺少区块标题');
+  if (!h.includes(APP_BUILD)) throw new Error('没显示更新日期');
+  if (!h.includes('当前版本')) throw new Error('没标出哪条是当前版本');
+  for (const r of CHANGELOG) if (!h.includes(r.version)) throw new Error('缺少 ' + r.version + ' 的记录');
+  for (const it of CHANGELOG[0].items) if (!h.includes(it.slice(0, 8))) throw new Error('本版更新内容未渲染：' + it.slice(0, 12));
+  // 默认（不传参数）应是折叠的，但标题上的版本号必须还在 —— 不然用户根本发现不了
+  const closed = R(React.createElement(VersionSection, {}));
+  if (!closed.includes(APP_VERSION)) throw new Error('折叠时标题上看不到版本号');
+  if (closed.includes('ver-hero')) throw new Error('默认应为折叠');
+  return `展开 ${h.length} 字符 · 折叠仍显示 ${APP_VERSION}`;
+});
+
+check('★ 首页底部显示版本号（真实渲染 App）', () => {
+  const h = R(React.createElement(App));
+  if (!h.includes('class="home-ver"')) throw new Error('首页没有版本号');
+  const m = h.match(/教师助手 <b>([^<]+)<\/b>/);
+  if (!m) throw new Error('首页版本号未渲染');
+  if (m[1] !== APP_VERSION) throw new Error(`首页显示 ${m[1]}，应为 ${APP_VERSION}`);
+  return `首页显示 ${m[1]}`;
+});
+
+check('★「标记为」：选中的那个带 ✓、实心、且只有一个', () => {
+  const brush = 'recited';
+  const list = students.map(st => ({ st, passed: 0, redo: 0, left: poems.length, total: poems.length, counted: true }));
+  const h = R(React.createElement(MatrixView, {
+    record: rec, poems, students: list, brush, setBrush: noop,
+    onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, undoDepth: 0, toast: noop,
+  }));
+  const chips = h.match(/<div class="rc-brush-chip[^"]*"[^>]*>[^<]*<\/div>/g) || [];
+  if (chips.length !== STATUS_META.length) throw new Error(`状态按钮应为 ${STATUS_META.length} 个，实际 ${chips.length}`);
+  const active = chips.filter(c => c.includes('active'));
+  if (active.length !== 1) throw new Error('选中的状态应恰好 1 个，实际 ' + active.length);
+  const on = active[0];
+  const meta = STATUS_META.find(x => x.value === brush);
+  if (!on.includes('✓')) throw new Error('选中的状态没有 ✓');
+  if (!on.includes(meta.label)) throw new Error('选中的不是「' + meta.label + '」');
+  if (!on.includes(meta.color)) throw new Error('选中态没用自己的状态色实心填充');
+  if (!on.includes('#fff')) throw new Error('选中态文字应为白色');
+  if ((h.match(/✓/g) || []).length !== 1) throw new Error('✓ 只应出现在选中的那个上');
+  // 没选中的保持浅底（用各自的 bg），靠对比把选中项凸显出来
+  const off = chips.find(c => !c.includes('active'));
+  if (!off.includes(meta.bg) && !STATUS_META.some(x => off.includes(x.bg))) throw new Error('未选中项丢失浅底样式');
+  return `1 个实心「✓ ${meta.label}」+ ${chips.length - 1} 个浅底`;
+});
+
+check('选中态样式：放大 + 加粗 + 光环（不是只换个底色）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const block = name => {
+    const i = css.lastIndexOf(name);
+    if (i < 0) throw new Error('样式里找不到 ' + name);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  const chip = block('.rc-brush-chip.active');
+  for (const want of ['transform: scale', 'font-weight: 800', 'box-shadow']) {
+    if (!chip.includes(want)) throw new Error('.rc-brush-chip.active 缺少 ' + want);
+  }
+  if (!block('.rc-brush-chip').includes('opacity')) throw new Error('未选中的状态按钮没有淡下去，对比不够');
+  const pp = block('.rc-pp-btn.active');
+  for (const want of ['font-weight: 800', 'transform: scale']) {
+    if (!pp.includes(want)) throw new Error('.rc-pp-btn.active 缺少 ' + want);
+  }
+  return '实心 + 放大 + 光环 + 未选中淡出';
+});
+
+check('备份文件名「导出」与「分享」一致', () => {
+  if (!backupFileName().endsWith('.json')) throw new Error('扩展名不对：' + backupFileName());
+  if (!backupFileName().includes('数据备份')) throw new Error('文件名不易识别：' + backupFileName());
+  return backupFileName();
+});
+
+/* shareBackup 要走异步（等系统分享面板），单独用顶层 await 测。
+   node 里没有 navigator.share / document，所以按分支打桩。 */
+const navDesc = globalThis.navigator;
+const realDocument = globalThis.document;
+const realCreateObjectURL = URL.createObjectURL;
+const realRevokeObjectURL = URL.revokeObjectURL;
+globalThis.document = { createElement: () => ({ click: noop, style: {} }), body: { appendChild: noop, removeChild: noop } };
+URL.createObjectURL = () => 'blob:test';
+URL.revokeObjectURL = noop;
+
+let sharedPayload = null;
+Object.defineProperty(globalThis, 'navigator', {
+  value: { share: async (o) => { sharedPayload = o; }, canShare: () => true },
+  configurable: true, writable: true,
+});
+try {
+  const r = await shareBackup();
+  check('★ 手机上分享备份：把 .json 文件直接交给系统分享面板', () => {
+    if (r !== 'shared') throw new Error('应为 shared，实际 ' + r);
+    const f = sharedPayload?.files?.[0];
+    if (!f) throw new Error('没有把文件传给分享面板');
+    if (!f.name.endsWith('.json')) throw new Error('文件名不对：' + f.name);
+    if (f.type !== 'application/json') throw new Error('文件类型不对：' + f.type);
+    if (!getBackupMeta().lastBackupAt) throw new Error('分享出去后应记一次「已备份」');
+    return `${f.name}（${f.size} 字节）`;
+  });
+} catch (e) {
+  failures++;
+  console.log('  FAIL 分享备份\n       ' + (e && e.message));
+}
+
+// 电脑浏览器基本都不支持分享文件 → 必须自动退回下载，不能点了没反应
+let downloaded = false;
+Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true });
+globalThis.document = {
+  createElement: () => ({ click: () => { downloaded = true; }, style: {} }),
+  body: { appendChild: noop, removeChild: noop },
+};
+try {
+  const r = await shareBackup();
+  check('不支持分享文件的浏览器自动退回下载', () => {
+    if (r !== 'downloaded') throw new Error('应为 downloaded，实际 ' + r);
+    if (!downloaded) throw new Error('没有触发下载');
+    return '已退回下载';
+  });
+} catch (e) {
+  failures++;
+  console.log('  FAIL 退回下载\n       ' + (e && e.message));
+} finally {
+  Object.defineProperty(globalThis, 'navigator', { value: navDesc, configurable: true, writable: true });
+  globalThis.document = realDocument;
+  URL.createObjectURL = realCreateObjectURL;
+  URL.revokeObjectURL = realRevokeObjectURL;
+}
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
 process.exit(failures === 0 ? 0 : 1);
