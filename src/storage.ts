@@ -88,6 +88,14 @@ export function getData(): AppData {
       const same = full.length === savedOrder.length && full.every((k, i) => k === savedOrder[i]);
       if (!same) parsed.settings.moduleOrder = full;
     }
+    // 被隐藏的模块同理：脏 key 要滤掉，「个人设置」永远不能被藏。
+    // 放在读取层是最后一道闸 —— 界面、备份、手改的 localStorage 都得过这里。
+    if (parsed.settings) {
+      const hide = normalizeHiddenModules(parsed.settings.hiddenModules);
+      const rawHide = parsed.settings.hiddenModules;
+      const same = Array.isArray(rawHide) && rawHide.length === hide.length && rawHide.every((k: string, i: number) => k === hide[i]);
+      if (!same) parsed.settings.hiddenModules = hide;
+    }
     try { localStorage.removeItem(READONLY_KEY); } catch { /* ignore */ }
     sessionIssue = null;
     return parsed as AppData;
@@ -170,6 +178,50 @@ export function normalizeModuleOrder(saved?: string[] | null): string[] {
  */
 export function getModuleOrder(): string[] {
   return normalizeModuleOrder(getData().settings?.moduleOrder);
+}
+
+/**
+ * 不允许被隐藏的模块。
+ *
+ * 「个人设置」必须在列，而且必须是**数据层的硬约束**、不能只靠界面把按钮置灰：
+ * 显示/隐藏的开关本身就装在设置页里，一旦设置页被藏掉，
+ * 用户就再也进不去、改不回来 —— 等于把自己永久锁在门外，只能清数据重来。
+ */
+export const ALWAYS_VISIBLE_MODULES = ['settings'];
+
+/**
+ * 归一化「被隐藏的模块」列表。
+ *
+ * 和 normalizeModuleOrder 一样的两条规矩：
+ * ① 过滤掉已经不存在 / 已改名的旧 key —— 老备份或旧版本留下的脏数据不能带进来；
+ * ② 强制剔掉 ALWAYS_VISIBLE_MODULES —— 无论数据来自界面、备份文件还是手改的 localStorage，
+ *    都不可能让「个人设置」消失。
+ */
+export function normalizeHiddenModules(saved?: string[] | null): string[] {
+  if (!Array.isArray(saved)) return [];
+  const out: string[] = [];
+  for (const k of saved) {
+    if (typeof k !== 'string') continue;
+    if (!DEFAULT_MODULE_ORDER.includes(k)) continue;
+    if (ALWAYS_VISIBLE_MODULES.includes(k)) continue;
+    if (out.includes(k)) continue;
+    out.push(k);
+  }
+  return out;
+}
+
+/**
+ * 首页最终要显示的模块：按用户排好的顺序，去掉被收起来的那些。
+ * 这是唯一的「算可见模块」的地方 —— 别在别处再写一遍过滤逻辑。
+ */
+export function visibleModules(order?: string[] | null, hidden?: string[] | null): string[] {
+  const hide = normalizeHiddenModules(hidden);
+  return normalizeModuleOrder(order).filter(k => !hide.includes(k));
+}
+
+/** 取被隐藏的模块（读的时候就归一化） */
+export function getHiddenModules(): string[] {
+  return normalizeHiddenModules(getData().settings?.hiddenModules);
 }
 
 export function saveModuleOrder(order: string[]) {

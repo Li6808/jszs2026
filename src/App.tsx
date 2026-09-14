@@ -5,6 +5,7 @@ import {
   saveDuty, deleteDuty, setData,
   getSalaryCategories, saveSalaryCategories,
   DEFAULT_SALARY_CATEGORIES, normalizeModuleOrder,
+  normalizeHiddenModules, visibleModules, ALWAYS_VISIBLE_MODULES,
 } from './storage';
 import { drawLeaveCanvasA4 } from './leaveCanvas';
 import { calcDays, getWeekByStartDate, getSemesterText, wday, wdayFull, LEAVE_TYPES, getDefaultPeriodNames } from './utils';
@@ -285,6 +286,13 @@ function App() {
   // 老数据（升级前保存过设置、或导入过旧备份）里的顺序缺后来新增的模块，
   // 直接渲染会让「古诗文背诵」等新模块的卡片凭空消失。
   const moduleOrder = normalizeModuleOrder(settings?.moduleOrder);
+  // 再按「被收起来的模块」过滤一遍 —— 只是不显示卡片，数据一条不动。
+  // 「个人设置」在数据层就被排除在隐藏名单之外，首页一定有它。
+  const hiddenModules = normalizeHiddenModules(settings?.hiddenModules);
+  const homeModules = useMemo(
+    () => visibleModules(moduleOrder, hiddenModules),
+    [moduleOrder.join(','), hiddenModules.join(',')],
+  );
 
   const swipeOffset = swipeProgress * 90;
   const swipeOpacity = swipeProgress;
@@ -305,10 +313,10 @@ function App() {
           opacity: 1 - swipeOpacity * 0.4,
         }}
       >
-        {isHome && <HomePage navigate={navigate} moduleOrder={moduleOrder} />}
+        {isHome && <HomePage navigate={navigate} moduleOrder={homeModules} />}
         {page === 'leave' && <LeavePage settings={settings} schoolName={schoolName} semesterText={semesterText} periodNames={periodNames} toast={toast} refresh={refresh} openQr={openQr} />}
         {page === 'schedule' && <SchedulePage settings={settings} periodNames={periodNames} schedule={schedule} toast={toast} openQr={openQr} />}
-        {page === 'settings' && <SettingsPage settings={settings} toast={toast} refresh={refresh} moduleOrder={moduleOrder} openQr={openQr} />}
+        {page === 'settings' && <SettingsPage settings={settings} toast={toast} refresh={refresh} moduleOrder={moduleOrder} hiddenModules={hiddenModules} openQr={openQr} />}
         {page === 'salary' && <SalaryPage toast={toast} />}
         {page === 'duty' && <DutyOnlyPage toast={toast} />}
         {page === 'substitute' && <SubstituteOnlyPage toast={toast} />}
@@ -948,7 +956,12 @@ export function VersionSection({ defaultOpen = false }: { defaultOpen?: boolean 
   );
 }
 
-function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
+/**
+ * 个人设置页。
+ * `defaultSection` 只给测试用（默认 'basic'，生产不传）——
+ * 折叠起来的区块服务端渲染时看不到正文，测试就没法断言里面的开关。
+ */
+export function SettingsPage({ settings, toast, refresh, moduleOrder, hiddenModules, openQr, defaultSection }: any) {
   // 学校名称默认留空占位（"××中学"），由使用者自己在设置里填写
   const defaultSchoolName = '××中学';
   // 学期自动计算
@@ -960,8 +973,10 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
   const [scheduleText, setScheduleText] = useState('');
   const [periodNames, setPeriodNames] = useState(settings?.periodNames?.join('\n') || getDefaultPeriodNames().join('\n'));
   const [timeTableText, setTimeTableText] = useState(() => { const tt = settings?.timeTable || []; return tt.map((t: any) => `${t.name} ${t.startTime}-${t.endTime}`).join('\n'); });
-  const [expanded, setExpanded] = useState<string>('basic');
+  const [expanded, setExpanded] = useState<string>(defaultSection || 'basic');
   const [localOrder, setLocalOrder] = useState<string[]>(moduleOrder);
+  /** 被收起来的模块（和 localOrder 一样，要点「保存设置」才落盘） */
+  const [localHidden, setLocalHidden] = useState<string[]>(hiddenModules || []);
 
   /* ---- 数据备份 ---- */
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
@@ -1069,6 +1084,8 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
       periodNames: pn.length > 0 ? pn : getDefaultPeriodNames(),
       timeTable: tt,
       moduleOrder: localOrder,
+      // 落盘前再归一化一次：把「个人设置」之类的不可隐藏项挡在门外
+      hiddenModules: normalizeHiddenModules(localHidden),
       salaryCategories: settings?.salaryCategories || DEFAULT_SALARY_CATEGORIES,
     });
     refresh(); toast('✅ 设置已保存！');
@@ -1081,6 +1098,28 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
     [newOrder[index], newOrder[newIndex]] = [newOrder[newIndex], newOrder[index]];
     setLocalOrder(newOrder);
   };
+
+  /**
+   * 显示 / 隐藏某个模块。
+   * 隐藏只是把首页那张卡片收起来，数据一条不删；想用的时候点回来就行。
+   * 「个人设置」不给藏 —— 开关就在设置页里，藏了用户就再也进不来（数据层也拦了一道）。
+   */
+  const toggleModuleVisible = (key: string) => {
+    if (ALWAYS_VISIBLE_MODULES.includes(key)) {
+      toast('「个人设置」不能隐藏：模块开关就在这里');
+      return;
+    }
+    setLocalHidden(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
+  };
+
+  /** 一键把所有模块放回首页 */
+  const showAllModules = () => {
+    setLocalHidden([]);
+    toast('已全部显示，记得点「保存设置」');
+  };
+
+  /** 首页最终会显示几个（本地未保存的状态） */
+  const willShowCount = localOrder.length - normalizeHiddenModules(localHidden).length;
 
   return (
     <div className="page">
@@ -1292,23 +1331,64 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
 
           <div className="settings-section">
             <div className={`section-header ${expanded === 'modules' ? '' : 'collapsed'}`} onClick={() => setExpanded(expanded === 'modules' ? '' : 'modules')}>
-              <span>🧩 首页模块排序</span><span>{expanded === 'modules' ? '▼' : '▶'}</span>
+              <span>🧩 首页模块显示与排序</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {normalizeHiddenModules(localHidden).length > 0 && (
+                  <em className="sec-ver">已隐藏 {normalizeHiddenModules(localHidden).length} 个</em>
+                )}
+                <span>{expanded === 'modules' ? '▼' : '▶'}</span>
+              </span>
             </div>
             {expanded === 'modules' && (
               <div className="section-body">
-                <p className="hint" style={{ marginBottom: 10 }}>点击 ↑ ↓ 调整模块在首页的显示顺序</p>
+                <p className="hint" style={{ marginBottom: 10 }}>
+                  用不上的模块可以收到右边关掉，这些课别的学科用不到，交给同事时首页更清爽。
+                  <b>隐藏不会删数据</b> —— 里面的记录一条都在，想用的时候打开开关就回来了。
+                </p>
                 {localOrder.map((key, i) => {
                   const mod = MODULE_CONFIG[key]; if (!mod) return null;
+                  const locked = ALWAYS_VISIBLE_MODULES.includes(key);
+                  const off = normalizeHiddenModules(localHidden).includes(key);
                   return (
-                    <div key={key} className="module-sort-item">
-                      <span>{mod.icon} {mod.name}</span>
+                    <div key={key} className={`module-sort-item ${off ? 'off' : ''}`}>
+                      <span className="msi-name">
+                        <span className="msi-icon">{mod.icon}</span>
+                        <span className="msi-text">
+                          {mod.name}
+                          {off && <em className="msi-tag">已隐藏</em>}
+                          {locked && <em className="msi-tag lock">固定显示</em>}
+                        </span>
+                      </span>
                       <div className="module-sort-btns">
-                        <button className="btn btn-small btn-secondary" disabled={i === 0} onClick={() => moveModule(i, -1)}>↑</button>
-                        <button className="btn btn-small btn-secondary" disabled={i === localOrder.length - 1} onClick={() => moveModule(i, 1)}>↓</button>
+                        <button className="btn btn-small btn-secondary" disabled={i === 0} onClick={() => moveModule(i, -1)} title="上移">↑</button>
+                        <button className="btn btn-small btn-secondary" disabled={i === localOrder.length - 1} onClick={() => moveModule(i, 1)} title="下移">↓</button>
+                        {locked ? (
+                          <span className="msi-lock" title="设置页不能隐藏">🔒</span>
+                        ) : (
+                          <button
+                            className={`msi-sw ${off ? 'off' : 'on'}`}
+                            role="switch"
+                            aria-checked={!off}
+                            aria-label={`${mod.name} 在首页显示`}
+                            onClick={() => toggleModuleVisible(key)}>
+                            <span className="msi-sw-knob" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
                 })}
+                <div className="msi-foot">
+                  <button className="btn btn-small btn-secondary" disabled={normalizeHiddenModules(localHidden).length === 0} onClick={showAllModules}>
+                    👁️ 全部显示
+                  </button>
+                  <span className="hint">
+                    首页将显示 <b>{willShowCount}</b> / {localOrder.length} 个模块
+                  </span>
+                </div>
+                <p className="hint" style={{ marginTop: 8 }}>
+                  ⚙️「个人设置」固定显示，不能隐藏 —— 模块开关就在这个页面里，藏起来就找不回来了。
+                </p>
               </div>
             )}
           </div>

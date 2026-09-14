@@ -2517,3 +2517,63 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   .bk-move-title, .bk-move-no { color: #64B5FF; }
   .bk-move-no { background: #0A84FF; color: #fff; }
 }
+
+/* ============================================================
+   V30 · 首页模块「显示 / 隐藏」开关
+   隐藏只是把卡片收起来，数据一条不删；「个人设置」固定显示不给藏。
+   ============================================================ */
+
+.msi-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.msi-icon { font-size: 17px; line-height: 1; flex-shrink: 0; }
+.msi-text { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+
+.msi-tag {
+  font-style: normal; font-size: 10.5px; font-weight: 700;
+  padding: 2px 7px; border-radius: var(--r-full);
+  color: var(--text-3);
+  background: var(--glass-soft);
+  border: 0.5px solid var(--glass-line);
+  white-space: nowrap;
+}
+
+/* 被收起来的模块：整行名字淡下去 + 虚线框，一眼看出「它还在，只是没显示」 */
+.module-sort-item.off .msi-name { opacity: 0.45; }
+.module-sort-item.off { border-style: dashed; }
+
+/* 显示 / 隐藏 开关 */
+.msi-sw {
+  width: 46px; height: 27px; flex-shrink: 0;
+  padding: 0; cursor: pointer;
+  border-radius: var(--r-full);
+  border: 0.5px solid var(--glass-line);
+  position: relative;
+  background: var(--glass-mid);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.msi-sw-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform var(--t-fast);
+}
+.msi-sw.on { background: var(--ios-green); border-color: var(--ios-green); }
+.msi-sw.on .msi-sw-knob { transform: translateX(20px); }
+
+/* 「个人设置」不可隐藏 —— 用一把锁替掉开关 */
+.msi-lock {
+  width: 46px; height: 27px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--glass-soft);
+  border: 0.5px solid var(--glass-line);
+  font-size: 13px; opacity: 0.75;
+}
+
+.msi-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 12px; padding-top: 12px;
+  border-top: 0.5px solid var(--glass-line);
+}
+.msi-foot .hint { margin: 0; }
+.msi-foot .hint b { color: var(--primary); font-weight: 800; }

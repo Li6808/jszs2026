@@ -2,7 +2,7 @@
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { RecitePage, ClassEditor, ClassDetail, QuickCheck, MatrixView, STATUS_META, isPassed } from './src/recite.tsx';
-import App, { VersionSection } from './src/App.tsx';
+import App, { VersionSection, SettingsPage } from './src/App.tsx';
 import { readFileSync } from 'node:fs';
 import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } from './src/reciteData.ts';
 import {
@@ -11,6 +11,8 @@ import {
   pickWeightedStudent, isCounted, getData, mutateRecite, setData, clearAll,
   getStorageIssue, onStorageIssue, isReadOnly, resetAfterCorruption,
   normalizeModuleOrder, getModuleOrder, getBackupMeta,
+  normalizeHiddenModules, visibleModules, ALWAYS_VISIBLE_MODULES,
+  getHiddenModules,
 } from './src/storage.ts';
 import {
   buildBackup, parseBackup, mergeIntoCurrent, summarize, describeScope,
@@ -1129,6 +1131,148 @@ try {
   URL.createObjectURL = realCreateObjectURL;
   URL.revokeObjectURL = realRevokeObjectURL;
 }
+
+console.log('\n[15] 首页模块显示 / 隐藏（模块开关）');
+/* 背景：显示/隐藏的开关本身装在「个人设置」页里。
+   一旦设置页被隐藏，用户就再也进不去、改不回来 —— 所以「设置页不可隐藏」
+   必须是**数据层的硬约束**，不能只靠界面把开关置灰。
+   下面同时锁住两件事：能隐藏、以及无论如何都藏不掉设置页。 */
+
+check('normalizeHiddenModules：滤掉脏数据，并强制保住「个人设置」', () => {
+  if (normalizeHiddenModules(undefined).length !== 0) throw new Error('undefined 应为空数组');
+  if (normalizeHiddenModules(null).length !== 0) throw new Error('null 应为空数组');
+  if (normalizeHiddenModules([]).length !== 0) throw new Error('空数组应保持为空');
+  const dirty = normalizeHiddenModules(['recite', 'settings', '已删除的模块', 'recite', 'leave', 123]);
+  if (dirty.includes('settings')) throw new Error('★「个人设置」被藏掉了 —— 用户会永远进不去设置页');
+  if (dirty.includes('已删除的模块')) throw new Error('未知模块未过滤');
+  if (dirty.includes('123')) throw new Error('非字符串项未过滤');
+  if (dirty.filter(k => k === 'recite').length !== 1) throw new Error('重复项未去重');
+  if (dirty.join() !== 'recite,leave') throw new Error('有效项丢失或顺序被改：' + dirty.join());
+  return `6 项脏数据 → ${dirty.join('、')}`;
+});
+
+check('「个人设置」写死在不可隐藏名单里', () => {
+  if (!Array.isArray(ALWAYS_VISIBLE_MODULES)) throw new Error('ALWAYS_VISIBLE_MODULES 应为数组');
+  if (!ALWAYS_VISIBLE_MODULES.includes('settings')) throw new Error('设置页不在固定显示名单里');
+  return ALWAYS_VISIBLE_MODULES.join('、');
+});
+
+check('visibleModules：只去掉被隐藏的，顺序不动', () => {
+  const all = getModuleOrder();
+  const v = visibleModules(all, ['recite', 'payment']);
+  if (v.length !== all.length - 2) throw new Error(`应为 ${all.length - 2} 个，实际 ${v.length}`);
+  if (v.includes('recite') || v.includes('payment')) throw new Error('被隐藏的模块仍在列表里');
+  if (v.join() !== all.filter(k => k !== 'recite' && k !== 'payment').join()) throw new Error('原有顺序被改动');
+  return `${all.length} 个 → 隐藏 2 个剩 ${v.length} 个，顺序不变`;
+});
+
+check('★ 9 个模块全塞进隐藏名单，首页也一定剩「个人设置」', () => {
+  const all = getModuleOrder();
+  const v = visibleModules(all, all);
+  if (!v.includes('settings')) throw new Error('★ 设置页也消失了 —— 用户再也改不回来');
+  if (v.length !== 1) throw new Error('应只剩设置页，实际剩 ' + v.length + ' 个');
+  return `${all.length} 个全隐藏 → 仍剩「个人设置」`;
+});
+
+check('读取层：手改 localStorage 也藏不掉设置页', () => {
+  const keep = JSON.stringify(getData());
+  const st = getData().settings || {};
+  setData({ settings: { ...st, hiddenModules: ['settings', 'recite', '不存在的模块'] }, history: [], salaries: [], duties: [], homeworkRecords: [], reciteRecords: [] });
+  const after = getHiddenModules();
+  const onDisk = JSON.parse(store['teacher_assistant_v3']).settings.hiddenModules;
+  setData(JSON.parse(keep));
+  if (after.includes('settings')) throw new Error('读取层没有拦住「个人设置」');
+  if (after.includes('不存在的模块')) throw new Error('读取层没有过滤未知模块');
+  if (after.join() !== 'recite') throw new Error('有效项丢失：' + after.join());
+  if (!onDisk.includes('settings')) throw new Error('前置异常：磁盘上本来就没写进去');
+  return '落盘含 settings → 读出来已被剔除，只剩 recite';
+});
+
+check('★ 隐藏后首页少几张卡片，但数据一条不丢（真实渲染 App）', () => {
+  // 先保证有一条背诵记录，才能验证「隐藏 ≠ 删除」
+  saveReciteRecord(rec);
+  const keep = JSON.stringify(getData());
+  const st = getData().settings || {};
+  setData({ ...getData(), settings: { ...st, hiddenModules: [] } });
+  const full = homeCards();
+  setData({ ...getData(), settings: { ...st, hiddenModules: ['recite', 'payment', 'duty'] } });
+  const hiddenView = homeCards();
+  const reciteRows = getReciteRecords().length;
+  setData(JSON.parse(keep));
+  if (!full.includes('古诗文背诵')) throw new Error('前置状态异常：未隐藏时首页就没有背诵入口');
+  for (const n of ['古诗文背诵', '支付截图', '值班统计']) {
+    if (hiddenView.includes(n)) throw new Error('隐藏后首页仍显示「' + n + '」');
+  }
+  if (hiddenView.length !== full.length - 3) throw new Error(`首页应为 ${full.length - 3} 个，实际 ${hiddenView.length} 个`);
+  if (!hiddenView.includes('个人设置')) throw new Error('★ 设置页被藏掉了');
+  if (reciteRows === 0) throw new Error('★ 隐藏把背诵数据删掉了 —— 隐藏只能是「不显示」');
+  return `${full.length} 个 → 隐藏 3 个剩 ${hiddenView.length} 个；背诵数据仍有 ${reciteRows} 条`;
+});
+
+/** 渲染设置页（默认展开到「模块显示与排序」那一段） */
+function settingsHtml(hide) {
+  return R(React.createElement(SettingsPage, {
+    settings: { ...(getData().settings || {}), name: '张××', hiddenModules: hide },
+    toast: noop, refresh: noop, moduleOrder: getModuleOrder(), hiddenModules: hide,
+    openQr: noop, defaultSection: 'modules',
+  }));
+}
+
+check('★ 设置页：每个模块一个开关，「个人设置」换成一把锁', () => {
+  const total = getModuleOrder().length;
+  const h = settingsHtml([]);
+  if (!h.includes('首页模块显示与排序')) throw new Error('缺少区块标题');
+  const on = (h.match(/class="msi-sw on"/g) || []).length;
+  const off = (h.match(/class="msi-sw off"/g) || []).length;
+  const locks = (h.match(/class="msi-lock"/g) || []).length;
+  if (on + off !== total - ALWAYS_VISIBLE_MODULES.length) throw new Error(`开关应为 ${total - 1} 个，实际 ${on + off}`);
+  if (on !== total - 1 || off !== 0) throw new Error('默认应全部处于「显示」状态');
+  if (locks !== 1) throw new Error('「个人设置」应恰好用一个锁替掉开关');
+  if (!h.includes('固定显示')) throw new Error('没标出哪个模块固定显示');
+  if (!h.includes('不能隐藏')) throw new Error('没说明「个人设置」为什么不能隐藏');
+  if (!h.includes('全部显示')) throw new Error('缺少「全部显示」兜底按钮');
+  if (!h.includes('隐藏不会删数据')) throw new Error('没讲清「隐藏不删数据」');
+  return `${total - 1} 个开关 + 1 把锁 + 兜底按钮`;
+});
+
+check('★ 被收起的模块：开关关闭 + 标「已隐藏」+ 整行淡下去', () => {
+  const total = getModuleOrder().length;
+  const h = settingsHtml(['recite']);
+  if ((h.match(/class="msi-sw off"/g) || []).length !== 1) throw new Error('应恰好 1 个开关处于关闭');
+  if ((h.match(/class="msi-sw on"/g) || []).length !== total - 2) throw new Error('其余开关应保持开启');
+  if (!h.includes('已隐藏')) throw new Error('被隐藏的模块没有标注');
+  if (!h.includes('module-sort-item off')) throw new Error('被隐藏的模块没有淡下去（缺 .off）');
+  if (!h.includes('已隐藏 1 个')) throw new Error('标题上看不到隐藏了几个');
+  const m = h.match(/首页将显示 <b>(\d+)<\/b>/);
+  if (!m) throw new Error('没有显示「首页将显示几个模块」');
+  if (Number(m[1]) !== total - 1) throw new Error(`应显示 ${total - 1}，实际 ${m[1]}`);
+  return `1 个已隐藏 · 首页将显示 ${m[1]} / ${total} 个`;
+});
+
+check('开关样式：绿色实心 + 滑块位移（不是只换个底色）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const rule = sel => {
+    const i = css.indexOf(sel + ' {');
+    if (i < 0) throw new Error('样式里找不到 ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  if (!rule('.msi-sw.on').includes('--ios-green')) throw new Error('.msi-sw.on 没有用开关绿');
+  if (!rule('.msi-sw.on .msi-sw-knob').includes('translateX')) throw new Error('滑块没有位移，看不出开/关');
+  if (!rule('.msi-sw-knob').includes('transition')) throw new Error('滑块没有过渡动画');
+  if (!css.includes('.module-sort-item.off')) throw new Error('被隐藏的模块没有淡下去');
+  return '绿色实心 + 滑块位移 + 过渡 + 隐藏行淡出';
+});
+
+check('备份带上「哪些模块被收起来了」（给同事时对方打开是同一个首页）', () => {
+  const keep = JSON.stringify(getData());
+  setData({ ...getData(), settings: { ...(getData().settings || {}), moduleOrder: getModuleOrder(), hiddenModules: ['recite', 'payment'] } });
+  const restored = parseBackup(JSON.stringify(buildBackup())).file?.data?.settings?.hiddenModules;
+  const after = JSON.parse(JSON.stringify(buildBackup())).data.settings.hiddenModules;
+  setData(JSON.parse(keep));
+  if (!restored || restored.join() !== 'recite,payment') throw new Error('备份里没带上隐藏设置：' + JSON.stringify(restored));
+  if (after.join() !== 'recite,payment') throw new Error('导出文件里没带上：' + JSON.stringify(after));
+  return '导出 / 解析都在：' + JSON.stringify(restored);
+});
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
 process.exit(failures === 0 ? 0 : 1);

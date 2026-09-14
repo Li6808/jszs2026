@@ -16,6 +16,13 @@ export interface Settings {
   periodNames: string[];
   timeTable: TimeSlot[];
   moduleOrder: string[];
+  /**
+   * 首页里被「收起来」的模块 key。
+   * 只是不显示卡片 —— 数据一条不动，随时可以再显示出来。
+   * 「个人设置」不允许出现在这里（见 storage.ts 的 ALWAYS_VISIBLE_MODULES），
+   * 否则用户把自己锁在设置页之外就再也改不回来了。
+   */
+  hiddenModules?: string[];
   salaryCategories: string[];
 }
 

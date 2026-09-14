@@ -4,7 +4,7 @@
    这里提供一次性导出 JSON、以及导入恢复(覆盖 / 合并)两种模式。
    ============================================================ */
 
-import { getData, setData, markBackedUp, getCorruptBackup, normalizeModuleOrder } from './storage';
+import { getData, setData, markBackedUp, getCorruptBackup, normalizeModuleOrder, normalizeHiddenModules } from './storage';
 import type { AppData } from './types';
 
 const APP_TAG = 'teacher-assistant-backup';
@@ -241,15 +241,20 @@ export function applyBackup(data: AppData, mode: 'replace' | 'merge') {
 }
 
 /**
- * 入库前先补齐模块顺序。
+ * 入库前先补齐模块顺序、并清洗被隐藏的模块列表。
  * 旧备份里的 `settings.moduleOrder` 记的是它那会儿的模块清单，
  * 直接写进去会让后来新增的模块（古诗文背诵）在首页消失。
+ * `hiddenModules` 同理 —— 旧备份可能带着已经不存在、或者不该隐藏的 key。
  */
 function normalizeIncoming(data: AppData): AppData {
   if (!data.settings) return data;
   return {
     ...data,
-    settings: { ...data.settings, moduleOrder: normalizeModuleOrder(data.settings.moduleOrder) },
+    settings: {
+      ...data.settings,
+      moduleOrder: normalizeModuleOrder(data.settings.moduleOrder),
+      hiddenModules: normalizeHiddenModules(data.settings.hiddenModules),
+    },
   };
 }
 
