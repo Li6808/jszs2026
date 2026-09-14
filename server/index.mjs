@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { Store, SESSION_TTL_MS, validateUsername, validatePassword } from './store.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
-const PKG_VERSION = '1.1.0';
+const PKG_VERSION = '1.2.0';
 
 /**
  * 这个网卡名有没有可能是「手机连得上」的真实网卡。

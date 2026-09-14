@@ -139,8 +139,17 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
     return info;
   }, []);
 
+  /**
+   * 探测同源服务器。**面板折叠着也要探一次**。
+   *
+   * 原因：老师在手机上打开局域网地址时，这个面板默认是收起来的。
+   * 不自动展开的话，他得先猜到这个折叠标题要点开，再找到「登录 / 拉取」，
+   * 大多数人到这一步就以为「没连上」而放弃了。所以一旦确认
+   * 「页面由局域网服务器托管 + 还没配置过」，就直接展开。
+   *
+   * 只探一次（挂载时），不跟着 open 反复跑；「重新检测」按钮另走 doProbe。
+   */
   useEffect(() => {
-    if (!open) return;
     let alive = true;
     void (async () => {
       setProbing(true);
@@ -148,11 +157,14 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
       setProbing(false);
       if (!alive) return;
       setSameOrigin(info);
+      if (!info) return;
       // 还没配置过、而当前页面正好由一台服务器托管 —— 直接把页签切过去
-      if (info && !getCloudServer()) setStore(info.lan ? 'lan' : 'remote');
+      if (!getCloudServer()) setStore(info.lan ? 'lan' : 'remote');
+      // 局域网服务器 + 尚未配置 + 尚未登录 → 自动展开，别让老师在手机上抓瞎
+      if (info.lan && !getCloudServer() && !isCloudLoggedIn()) setOpen(true);
     })();
     return () => { alive = false; };
-  }, [open]);
+  }, []);
 
   const localKB = localInfo.kb;
   const localSummary = localInfo.summary;
