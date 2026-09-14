@@ -2357,6 +2357,24 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 }
 .cloud-steps-title { font-weight: 700; margin-bottom: 3px; }
 
+/* 手机连不上时的说明块：橙色警示，和灰色的步骤块区分开 */
+.cloud-warn {
+  margin-top: 10px;
+  padding: 11px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 149, 0, 0.10);
+  border: 0.5px solid rgba(255, 149, 0, 0.32);
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-2);
+}
+.cloud-warn b { color: #C77700; }
+
+@media (prefers-color-scheme: dark) {
+  .cloud-warn { background: rgba(255, 149, 0, 0.14); }
+  .cloud-warn b { color: #FFB340; }
+}
+
 @media (max-width: 360px) {
   .cloud-seg .rc-seg-item { font-size: 10.5px; padding: 8px 3px; }
 }

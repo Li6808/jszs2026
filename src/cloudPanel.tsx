@@ -19,7 +19,7 @@ import {
   getCloudServer, setCloudServer, isCloudConfigured, isCloudLoggedIn, getCloudUser,
   getCloudMeta, clearCloudSession, forgetCloud, normalizeServerUrl, isLanAddress,
   probeSameOrigin, cloudPing, cloudRegister, cloudLogin, cloudLogout, cloudStatus,
-  cloudUpload, cloudDownload, formatBytes, CloudError,
+  cloudUpload, cloudDownload, formatBytes, CloudError, bestShareUrl,
 } from './cloud';
 import type { CloudUser, CloudBlobMeta, CloudLocalMeta, SameOriginInfo } from './cloud';
 import { summarize, applyBackup, dataSizeKB } from './backup';
@@ -156,6 +156,18 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
 
   const localKB = localInfo.kb;
   const localSummary = localInfo.summary;
+
+  /**
+   * 生成「发给手机扫」的地址。
+   * 老师在电脑上多半是用 http://127.0.0.1:8787 打开的，直接把这个做成二维码，
+   * 手机扫到的是它自己，永远打不开 —— 所以回环地址一律换成局域网地址。
+   */
+  const shareUrlFor = useCallback((target: string) => {
+    if (/^https?:\/\/(127\.|localhost|\[::1\])/i.test(target) && sameOrigin?.urls?.length) {
+      return bestShareUrl(sameOrigin);
+    }
+    return target;
+  }, [sameOrigin]);
 
   /* ------------------------- 连接服务器 ------------------------- */
 
@@ -303,12 +315,17 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
                           {sameOrigin.lan ? ' · 局域网已开启' : ''}
                         </span>
                       </div>
+                      {sameOrigin.lan && sameOrigin.urls?.length > 0 && (
+                        <div className="cloud-found-sub" style={{ marginTop: 4 }}>
+                          手机请用这个地址：<b>{bestShareUrl(sameOrigin)}</b>
+                        </div>
+                      )}
                       <div className="btn-row" style={{ marginTop: 8 }}>
                         <button className="btn btn-primary btn-small" disabled={busy === 'ping'} onClick={useSameOrigin}>
                           {busy === 'ping' ? '连接中…' : '✅ 就用这台服务器'}
                         </button>
                         <button className="btn btn-outline btn-small"
-                          onClick={() => openQr?.(sameOrigin.origin)}>
+                          onClick={() => openQr?.(bestShareUrl(sameOrigin))}>
                           📱 手机扫码打开
                         </button>
                       </div>
@@ -330,10 +347,28 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
                   )}
 
                   <div className="cloud-steps">
-                    <div className="cloud-steps-title">第一次使用，三步搞定：</div>
-                    <div>① 双击启动脚本 —— 会弹出一个黑色窗口，那就是服务器，<b>别关它</b></div>
-                    <div>② 电脑浏览器会自动打开应用，回到这里点「✅ 就用这台服务器」</div>
-                    <div>③ 手机连同一个 Wi-Fi，点「📱 手机扫码打开」，然后注册账号</div>
+                    <div className="cloud-steps-title">电脑这边（第一次做一遍）</div>
+                    <div>① 双击启动脚本 —— 弹出的黑色窗口就是服务器，<b>别关它</b></div>
+                    <div>② 回到这里点「✅ 就用这台服务器」，注册一个账号</div>
+                    <div>③ 点「☁️ 上传当前全部数据到服务器」—— 电脑上的数据就进服务器了</div>
+                  </div>
+
+                  <div className="cloud-steps">
+                    <div className="cloud-steps-title">手机这边</div>
+                    <div>① 连上<b>同一个 Wi-Fi</b></div>
+                    <div>② 用手机<b>相机</b>或浏览器扫码 —— <b>别用微信扫</b>，微信里没法「添加到主屏幕」</div>
+                    <div>③ 打开后<b>登录同一个账号</b>，点「⬇️ 从云端拉取」—— 电脑上的数据就到手机了</div>
+                  </div>
+
+                  <div className="cloud-warn">
+                    <b>⚠️ 手机上原来那个应用（从网上装的）连不上这里，也看不到这里的数据。</b>
+                    <div style={{ marginTop: 4 }}>
+                      这是浏览器的硬规定，两条都绕不过：<br />
+                      ① 每个网址的「应用」数据各存一份，<b>互不相通</b>；<br />
+                      ② 网上那个是 https 安全页，<b>不许连</b>本机这种 http 服务。<br />
+                      所以手机想用这里的数据，就用上面的码打开、登录同一账号、拉取一次。
+                      打开后建议选浏览器菜单里的「添加到主屏幕」，以后就像 App 一样。
+                    </div>
                   </div>
 
                   <p className="hint">
@@ -407,7 +442,7 @@ export function CloudPanel({ toast, openQr, initialStore, defaultOpen }: Props) 
                       {' '}
                       <a
                         style={{ color: 'var(--primary)', cursor: 'pointer' }}
-                        onClick={() => openQr(server)}
+                        onClick={() => openQr(shareUrlFor(server))}
                       >📱 手机扫码打开</a>
                     </>
                   )}

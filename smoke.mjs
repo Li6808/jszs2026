@@ -707,17 +707,31 @@ check('存放方式默认是「只在这台设备」，并说明代价', () => {
   return '三选一完整，默认本地';
 });
 
-check('选「自己电脑做服务器」时给出三步操作与限制', () => {
+check('选「自己电脑做服务器」时给出电脑/手机两段操作与限制', () => {
   resetCloud();
   const p = { ...props, defaultOpen: true, initialStore: 'lan' };
   const h = R(React.createElement(CloudPanel, p));
   if (!h.includes('同一个 Wi-Fi')) throw new Error('未强调同一 Wi-Fi');
-  if (!h.includes('三步搞定')) throw new Error('缺少三步说明');
+  if (!h.includes('电脑这边')) throw new Error('缺少电脑端步骤');
+  if (!h.includes('手机这边')) throw new Error('缺少手机端步骤');
   if (!h.includes('别关它')) throw new Error('未提醒别关黑窗口');
   if (!h.includes('重新检测')) throw new Error('缺少重新检测入口');
   if (!h.includes('data')) throw new Error('未说明数据落盘位置');
   if (h.includes('https://')) throw new Error('局域网页不应出现 https 占位');
-  return '三步说明 + 限制提醒齐全';
+  return '电脑/手机两段操作 + 限制提醒齐全';
+});
+
+check('明确解释「手机上的旧 PWA 连不上这里」并给出正确做法', () => {
+  resetCloud();
+  const p = { ...props, defaultOpen: true, initialStore: 'lan' };
+  const h = R(React.createElement(CloudPanel, p));
+  // 用户真实困惑：手机上装的 PWA 扫码后数据对不上，也连不上这台电脑。
+  // 背后是浏览器的两条硬限制，界面必须主动解释，否则老师会以为程序坏了。
+  if (!h.includes('互不相通')) throw new Error('未解释「不同网址数据各存一份」');
+  if (!h.includes('不许连')) throw new Error('未解释「https 安全页不许连 http 服务」');
+  if (!h.includes('登录同一个账号')) throw new Error('未给出正确的同步做法');
+  if (!h.includes('添加到主屏幕')) throw new Error('未提示可添加到主屏幕');
+  return '说清了浏览器限制与替代做法';
 });
 
 check('选「公网服务器」时强调 HTTPS 与根地址', () => {

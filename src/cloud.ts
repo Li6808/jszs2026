@@ -121,6 +121,46 @@ export interface SameOriginInfo {
   registrationOpen: boolean;
   /** 服务端自己是局域网监听（自己电脑当服务器） */
   lan: boolean;
+  /**
+   * 手机可用的访问地址（由服务端列出本机的局域网 IP）。
+   * 只监听回环时是空数组 —— 那种情况下手机本来就打不开。
+   */
+  urls: string[];
+}
+
+/**
+ * 挑一个「发给手机」的地址。
+ *
+ * 为什么不能直接用 `info.origin`：老师很可能是在电脑上通过
+ * `http://127.0.0.1:8787` 打开的，把这个地址做成二维码，
+ * 手机扫到的是**手机自己**，永远打不开。
+ * 所以优先用服务端列出的局域网地址。
+ */
+export function bestShareUrl(info: SameOriginInfo | null): string {
+  if (!info) return '';
+  const lan = (info.urls || []).find(u => !/^https?:\/\/(127\.|localhost|\[::1\])/i.test(u));
+  return lan || (info.urls || [])[0] || info.origin;
+}
+
+/* ---------------- 二维码该编码哪个地址 ---------------- */
+
+/**
+ * 页面加载时记住「手机该用哪个地址」。
+ *
+ * 老师在电脑上很可能通过 `http://127.0.0.1:8787` 打开，直接把当前地址做成二维码，
+ * 手机扫到的是**手机自己**，永远打不开。所以探测到本机服务器时，
+ * 用服务端给出的局域网地址覆盖它；没有服务器（线上版）就沿用当前地址。
+ */
+let cachedShareOrigin = '';
+
+export function setShareOrigin(url: string) {
+  cachedShareOrigin = url || '';
+}
+
+export function getShareOrigin(): string {
+  if (cachedShareOrigin) return cachedShareOrigin;
+  if (typeof window === 'undefined') return '';
+  return window.location.origin + window.location.pathname;
 }
 
 /**
@@ -150,13 +190,20 @@ export async function probeSameOrigin(): Promise<SameOriginInfo | null> {
     });
     if (!res.ok) return null;
     const data = await res.json().catch(() => null) as
-      { app?: string; version?: string; registrationOpen?: boolean; lan?: boolean } | null;
+      {
+        app?: string; version?: string; registrationOpen?: boolean;
+        lan?: boolean; urls?: unknown;
+      } | null;
     if (!data || data.app !== 'teacher-assistant-cloud') return null;
+    const urls = Array.isArray(data.urls)
+      ? data.urls.filter((u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u))
+      : [];
     return {
       origin,
       version: String(data.version || ''),
       registrationOpen: !!data.registrationOpen,
       lan: !!data.lan,
+      urls,
     };
   } catch {
     return null;

@@ -24,18 +24,44 @@ const HERE = fileURLToPath(new URL('.', import.meta.url));
 const PKG_VERSION = '1.1.0';
 
 /**
- * 本机所有可供局域网访问的 IPv4 地址（排除回环）。
+ * 这个网卡名有没有可能是「手机连得上」的真实网卡。
+ * 隧道类（VPN / 代理 TUN / AirDrop / 虚拟机）一律排除 ——
+ * 它们在本机看着正常，手机上根本不可达，把地址给老师只会让人一直打不开。
+ */
+export function isShareableIface(name) {
+  return !/^(utun|ipsec|ppp|tun|tap|gif|stf|awdl|llw|bridge|vmnet|vboxnet|docker)/i.test(String(name || ''));
+}
+
+/**
+ * 这个 IPv4 地址能不能发给手机用。
+ * 抽成纯函数是为了能单独测 —— 机器上有没有虚拟网卡，测试结果会不一样。
+ */
+export function isShareableAddress(addr) {
+  const a = String(addr || '');
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return false;
+  if (/^(127|0)\./.test(a)) return false;                              // 回环 / 无效
+  if (a.startsWith('169.254.')) return false;                          // link-local，不可路由
+  if (/^198\.1[89]\./.test(a)) return false;                           // 198.18.0.0/15：代理软件 TUN 占用的保留段
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a)) return false; // 100.64/10：CGNAT（Tailscale 等）
+  return true;
+}
+
+/**
+ * 本机所有可供局域网访问的 IPv4 地址（排除回环、虚拟网卡与不可路由段）。
  * 给「自己电脑当服务器」这种用法用 —— 手机要连的就是这几个地址之一。
  */
 export function lanIPv4List() {
   const out = [];
   const nis = networkInterfaces();
   for (const name of Object.keys(nis)) {
+    if (!isShareableIface(name)) continue;
     for (const ni of nis[name] || []) {
-      if (ni.family === 'IPv4' && !ni.internal) out.push({ iface: name, address: ni.address });
+      if (ni.family !== 'IPv4' || ni.internal) continue;
+      if (!isShareableAddress(ni.address)) continue;
+      out.push({ iface: name, address: ni.address });
     }
   }
-  // 家用/办公最常见的 192.168 排前面，虚拟网卡（172.x / 其它）排后面
+  // 家用/办公最常见的 192.168 排前面，其次 10.x、172.16-31.x，最后才是其它
   const rank = a => (/^192\.168\./.test(a) ? 0
     : /^10\./.test(a) ? 1
       : /^172\.(1[6-9]|2\d|3[01])\./.test(a) ? 2 : 3);
@@ -292,13 +318,24 @@ export function createApp(overrides = {}) {
 
     /* ---------- 健康检查 ---------- */
     if (pathname === '/api/health' && method === 'GET') {
+      const lan = !isLoopbackHost(cfg.host);
+      /**
+       * 手机该访问哪个地址。
+       * 只监听回环（默认）时没有局域网地址，返回空数组 ——
+       * 前端会退回「用当前页面地址」，那种情况本来就只能本机用。
+       */
+      const urls = lan
+        ? lanIPv4List().map(n => `http://${n.address}:${cfg.port}`)
+        : [];
       return sendJson(res, 200, {
         ok: true,
         app: 'teacher-assistant-cloud',
         version: PKG_VERSION,
         registrationOpen: !!cfg.inviteCode,
         // 前端据此知道「这是局域网里的自己人服务器」，而不是公网服务器
-        lan: !isLoopbackHost(cfg.host),
+        lan,
+        // 手机可用的访问地址（按家用网段优先排序）
+        urls,
         time: new Date().toISOString(),
       });
     }
@@ -460,7 +497,11 @@ export function startServer(overrides = {}) {
   return new Promise((res, rej) => {
     app.server.once('error', rej);
     app.server.listen(app.cfg.port, app.cfg.host, () => {
-      res({ ...app, port: app.server.address().port });
+      const addr = app.server.address();
+      // 传 port:0 时系统会随机分配端口，此时 cfg.port 仍是 0 —— 回填真实端口，
+      // 否则 /api/health 给出的「手机该用哪个地址」会带一个 :0
+      if (addr && typeof addr === 'object') app.cfg.port = addr.port;
+      res({ ...app, port: app.cfg.port });
     });
   });
 }

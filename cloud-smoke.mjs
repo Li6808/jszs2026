@@ -229,6 +229,97 @@ await check('probeSameOrigin：服务端结构对但 app 标识不符时也不�
   return '靠 app 标识区分同名接口';
 });
 
+/* ---------- 二维码该编码哪个地址（手机扫了要能打开） ---------- */
+
+await check('probeSameOrigin：带回「手机可用的局域网地址」列表', async () => {
+  const fake = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true, app: 'teacher-assistant-cloud', version: '1.2.0',
+      registrationOpen: true, lan: true, urls: ['http://192.168.1.8:8787'],
+    }));
+  });
+  await new Promise(r => fake.listen(0, '127.0.0.1', r));
+  const port = fake.address().port;
+  try {
+    const info = await withOrigin(
+      { protocol: 'http:', origin: `http://127.0.0.1:${port}` },
+      () => cloud.probeSameOrigin(),
+    );
+    assert(info, '应识别为服务端');
+    eq(info.urls, ['http://192.168.1.8:8787'], '应带回 urls');
+    return info.urls.join(' ');
+  } finally {
+    await new Promise(r => fake.close(r));
+  }
+});
+
+await check('probeSameOrigin：urls 缺失或掺了非法项时安全降级', async () => {
+  const fake = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true, app: 'teacher-assistant-cloud', version: '1.0.0',
+      registrationOpen: false, lan: false, urls: ['不是地址', 42, 'http://10.0.0.2:8787'],
+    }));
+  });
+  await new Promise(r => fake.listen(0, '127.0.0.1', r));
+  const port = fake.address().port;
+  try {
+    const info = await withOrigin(
+      { protocol: 'http:', origin: `http://127.0.0.1:${port}` },
+      () => cloud.probeSameOrigin(),
+    );
+    eq(info.urls, ['http://10.0.0.2:8787'], '非字符串/非地址的项应被过滤');
+    return '只留下合法地址';
+  } finally {
+    await new Promise(r => fake.close(r));
+  }
+});
+
+await check('bestShareUrl：优先给局域网地址，躲开 127.0.0.1', () => {
+  // 电脑上多半是用 127.0.0.1 打开的 —— 把这个做成二维码，手机扫到的是手机自己
+  const picked = cloud.bestShareUrl({
+    origin: 'http://127.0.0.1:8787', version: '1', registrationOpen: true, lan: true,
+    urls: ['http://127.0.0.1:8787', 'http://192.168.1.8:8787'],
+  });
+  eq(picked, 'http://192.168.1.8:8787', '应挑出局域网地址');
+  return picked;
+});
+
+await check('bestShareUrl：没有局域网地址时安全退回', () => {
+  eq(
+    cloud.bestShareUrl({
+      origin: 'http://127.0.0.1:8787', version: '1', registrationOpen: true, lan: false, urls: [],
+    }),
+    'http://127.0.0.1:8787',
+    '空列表退回 origin',
+  );
+  eq(cloud.bestShareUrl(null), '', 'null 返回空串');
+  return '降级正常';
+});
+
+await check('getShareOrigin：没探测到服务器时用当前页面地址', async () => {
+  cloud.setShareOrigin('');
+  const u = await withOrigin(
+    { protocol: 'https:', origin: 'https://li6808.github.io', pathname: '/jszs2026/' },
+    () => cloud.getShareOrigin(),
+  );
+  eq(u, 'https://li6808.github.io/jszs2026/', '线上版沿用当前地址');
+  return u;
+});
+
+await check('getShareOrigin：探测到本机服务器后自动换成局域网地址', async () => {
+  // 这正是老师踩的坑：电脑用 127.0.0.1 打开，二维码必须换成 192.168.x.x
+  cloud.setShareOrigin('http://192.168.1.8:8787');
+  const u = await withOrigin(
+    { protocol: 'http:', origin: 'http://127.0.0.1:8787', pathname: '/' },
+    () => cloud.getShareOrigin(),
+  );
+  eq(u, 'http://192.168.1.8:8787', '应换成局域网地址');
+  cloud.setShareOrigin('');
+  return u;
+});
+
 await check('地址填错时给出「连不上」而不是抛原始异常', async () => {
   return expectError(
     () => cloud.cloudPing('127.0.0.1:1'),

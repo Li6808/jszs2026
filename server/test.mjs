@@ -10,7 +10,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer } from './index.mjs';
+import { startServer, isShareableAddress, isShareableIface, lanIPv4List } from './index.mjs';
 
 const INVITE = 'test-invite-8899';
 
@@ -460,6 +460,84 @@ await check('清空 INVITE_CODE 后注册被关闭，老账号仍可登录', asy
   const login = await api('/api/login', { method: 'POST', body: { username: '李老师', password: 'abc123456' } });
   eq(login.status, 200, '老账号登录状态码');
   return '注册关闭 · 登录正常';
+});
+
+/* ============================================================
+   手机该用哪个地址
+   ------------------------------------------------------------
+   踩过的坑：电脑开着代理软件（Clash/Surge 的 TUN 模式）时，系统里会多出
+   utun 网卡 + 198.18.x.x 地址，看着像"局域网"，手机却永远连不上。
+   把这些地址做成二维码给老师，就会一直打不开。
+   ============================================================ */
+
+console.log('\n[ 手机可用地址 ]');
+
+await check('代理软件的虚拟网段不给手机用', () => {
+  eq(isShareableAddress('198.18.0.1'), false, '198.18.x（TUN 保留段）');
+  eq(isShareableAddress('198.19.255.254'), false, '198.19.x（TUN 保留段）');
+  return '198.18/15 已排除';
+});
+
+await check('回环 / link-local / CGNAT 一律排除', () => {
+  eq(isShareableAddress('127.0.0.1'), false, '回环');
+  eq(isShareableAddress('0.0.0.0'), false, '无效地址');
+  eq(isShareableAddress('169.254.1.1'), false, 'link-local');
+  eq(isShareableAddress('100.64.0.1'), false, 'CGNAT 下界');
+  eq(isShareableAddress('100.127.255.1'), false, 'CGNAT 上界');
+  eq(isShareableAddress('不是地址'), false, '非法输入');
+  return '5 类不可达地址已排除';
+});
+
+await check('家用/办公网段正常放行', () => {
+  eq(isShareableAddress('192.168.1.8'), true, '192.168.x');
+  eq(isShareableAddress('10.0.0.5'), true, '10.x');
+  eq(isShareableAddress('172.20.10.1'), true, '172.16-31.x');
+  return '三类私有网段可用';
+});
+
+await check('隧道/虚拟网卡名一律排除，真实网卡放行', () => {
+  eq(isShareableIface('utun4'), false, 'VPN 隧道');
+  eq(isShareableIface('awdl0'), false, 'AirDrop');
+  eq(isShareableIface('bridge0'), false, '虚拟网桥');
+  eq(isShareableIface('docker0'), false, '容器网桥');
+  eq(isShareableIface('en0'), true, 'Wi-Fi 网卡');
+  eq(isShareableIface('ap1'), true, '个人热点');
+  return '虚拟网卡已排除';
+});
+
+await check('lanIPv4List() 的每一项都经得起手机访问', () => {
+  const list = lanIPv4List();
+  for (const n of list) {
+    assert(isShareableAddress(n.address), `${n.address} 不该出现在结果里`);
+    assert(isShareableIface(n.iface), `网卡 ${n.iface} 不该出现在结果里`);
+  }
+  return list.map(n => `${n.iface}:${n.address}`).join(' ') || '（本机无局域网地址）';
+});
+
+await check('局域网模式下会告诉前端「手机该用哪个地址」', async () => {
+  const lanApp = await startServer({
+    port: 0, host: '0.0.0.0', dataDir, staticDir,
+    inviteCode: INVITE, maxBlobMB: 1, logRequests: false,
+  });
+  try {
+    const body = await (await fetch(`http://127.0.0.1:${lanApp.port}/api/health`)).json();
+    eq(body.lan, true, 'lan 标志');
+    assert(Array.isArray(body.urls), 'urls 必须是数组');
+    for (const u of body.urls) {
+      assert(/^http:\/\/\d{1,3}(\.\d{1,3}){3}:\d+$/.test(u), `地址格式不对: ${u}`);
+      assert(!/^http:\/\/(127\.|0\.|169\.254\.|198\.1[89]\.)/.test(u), `不该给不可达地址: ${u}`);
+    }
+    return `${body.urls.length} 个：${body.urls.join(' ') || '（本机没有局域网地址）'}`;
+  } finally {
+    await new Promise(r => lanApp.server.close(r));
+  }
+});
+
+await check('只监听本机时不给手机地址（免得给出连不上的地址）', async () => {
+  const h = await api('/api/health');
+  eq(h.body.lan, false, 'lan 标志');
+  eq(h.body.urls, [], 'urls 应为空数组');
+  return '回环模式 · urls 为空';
 });
 
 await new Promise(r => app.server.close(r));

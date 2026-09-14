@@ -23,6 +23,7 @@ import {
 } from './backup';
 import { makeQrDataUrl } from './qr';
 import { CloudPanel } from './cloudPanel';
+import { probeSameOrigin, bestShareUrl, setShareOrigin, getShareOrigin } from './cloud';
 import './App.css';
 
 type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework' | 'recite';
@@ -52,6 +53,24 @@ function App() {
   const [activeInput, setActiveInput] = useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const refresh = useCallback(() => setLocalData(getData()), []);
+
+  /**
+   * 启动时探一次本机服务器：如果当前页面正是由自己电脑上的服务托管的，
+   * 就记住「手机该用的局域网地址」，供各页面的二维码使用。
+   *
+   * 电脑上多半是 http://127.0.0.1:8787 打开的，直接拿当前地址做二维码，
+   * 手机扫到的是它自己，永远打不开 —— 所以要用服务端给出的局域网地址。
+   */
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const info = await probeSameOrigin();
+      if (!alive || !info?.lan) return;
+      const lan = bestShareUrl(info);
+      if (lan) setShareOrigin(lan);
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const openQr = useCallback((url: string) => setQrUrl(url), []);
   const closeQr = useCallback(() => setQrUrl(null), []);
@@ -645,7 +664,7 @@ function LeavePage({ settings, schoolName, semesterText, periodNames, toast, ref
                 }, 'image/png');
               }}>🔗 分享</button>
               {/* 新增:二维码分享 */}
-              <button className="btn btn-outline" onClick={() => openQr?.(settings?.pwaUrl || window.location.origin + window.location.pathname)} title="生成二维码,扫码分享 PWA">📱 二维码</button>
+              <button className="btn btn-outline" onClick={() => openQr?.(settings?.pwaUrl || getShareOrigin())} title="生成二维码,扫码分享 PWA">📱 二维码</button>
             </div>
             <p className="hint" style={{ textAlign: 'center' }}>点击图片可放大查看,长按图片可保存到相册</p>
           </div>
@@ -861,7 +880,7 @@ function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
                 {/* 新增:分享课表 */}
                 <button className="btn btn-primary" onClick={shareSchedule} title="通过系统分享到微信/QQ/收藏等">🔗 分享</button>
                 {/* 新增:二维码分享 */}
-                <button className="btn btn-outline" onClick={() => openQr?.(settings?.pwaUrl || window.location.origin + window.location.pathname)} title="生成二维码,扫码分享 PWA">📱 二维码</button>
+                <button className="btn btn-outline" onClick={() => openQr?.(settings?.pwaUrl || getShareOrigin())} title="生成二维码,扫码分享 PWA">📱 二维码</button>
               </div>
             </div>
           )}
@@ -1893,7 +1912,7 @@ ${timeList}
                 }} title="分享排版图到微信/QQ等">🔗 分享</button>
               )}
               {/* 新增:二维码分享 */}
-              <button className="btn btn-outline" onClick={() => openQr?.(window.location.origin + window.location.pathname)} title="生成二维码,扫码分享 PWA">📱 二维码</button>
+              <button className="btn btn-outline" onClick={() => openQr?.(getShareOrigin())} title="生成二维码,扫码分享 PWA">📱 二维码</button>
             </div>
             {a4Images.length > 0 && (
               <div style={{ marginTop: 16 }}>
