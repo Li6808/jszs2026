@@ -950,6 +950,12 @@ export function VersionSection({ defaultOpen = false }: { defaultOpen?: boolean 
               </ul>
             </div>
           ))}
+          <div className="ver-tip">
+            <b>🎨 想换掉这个图标？</b>
+            交付包（电脑上那个文件夹）里有个「图标」文件夹，把你的图存成 <code>我的图标.png</code>
+            再双击「换图标（Mac）」，整套图标一次换完。换完记得把手机主屏上旧图标删掉、
+            重新「添加到主屏幕」，否则手机还用着旧的那张。
+          </div>
         </div>
       )}
     </div>

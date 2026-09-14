@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { RecitePage, ClassEditor, ClassDetail, QuickCheck, MatrixView, STATUS_META, isPassed } from './src/recite.tsx';
 import App, { VersionSection, SettingsPage } from './src/App.tsx';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } from './src/reciteData.ts';
 import {
   buildPoemsFromPreset, genId, importStudentsFromText, importPoemsFromText, parseQuizText,
@@ -1302,6 +1302,79 @@ check('备份带上「哪些模块被收起来了」（给同事时对方打开�
   if (!restored || restored.join() !== 'recite,payment') throw new Error('备份里没带上隐藏设置：' + JSON.stringify(restored));
   if (after.join() !== 'recite,payment') throw new Error('导出文件里没带上：' + JSON.stringify(after));
   return '导出 / 解析都在：' + JSON.stringify(restored);
+});
+
+console.log('\n[16] 应用图标（V32 换了新图标 + 自己换图标的接口）');
+
+/** 读 PNG 的真实边长：8 字节签名 + IHDR 里的宽高各 4 字节大端 */
+function pngSize(buf) {
+  if (buf.length < 24 || buf.subarray(0, 8).toString('latin1') !== '\x89PNG\r\n\x1a\n') {
+    throw new Error('不是合法的 PNG 文件');
+  }
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+}
+const pub = (f) => new URL('./public/' + f, import.meta.url);
+
+check('manifest 里声明的每个图标都真实存在，边长与声明一致、且是正方形', () => {
+  const man = JSON.parse(readFileSync(new URL('./public/manifest.json', import.meta.url), 'utf8'));
+  const seen = [];
+  for (const ic of man.icons) {
+    const { w, h } = pngSize(readFileSync(pub(ic.src.replace('./', ''))));
+    const [sw, sh] = ic.sizes.split('x').map(Number);
+    if (w !== sw || h !== sh) throw new Error(`${ic.src} 声明 ${ic.sizes}，实际 ${w}×${h}`);
+    if (w !== h) throw new Error(`${ic.src} 不是正方形（${w}×${h}），安卓会变形`);
+    seen.push(ic.sizes);
+  }
+  return `${man.icons.length} 个：${seen.join(' / ')}`;
+});
+
+check('index.html 引用的图标文件同样都在（别只在 manifest 里有）', () => {
+  const h = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const hrefs = [...h.matchAll(/href="\.\/([\w.-]+\.png)[^"]*"/g)].map(m => m[1]);
+  if (!hrefs.length) throw new Error('index.html 里没有任何 PNG 图标引用');
+  for (const f of hrefs) pngSize(readFileSync(pub(f)));
+  return hrefs.join(' / ');
+});
+
+check('浏览器页签给了 32px 的小图标，不再挂着那个旧 favicon.ico', () => {
+  const h = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  if (h.includes('favicon.ico')) throw new Error('还引着 favicon.ico（那是个改了名的旧 PNG）');
+  if (!h.includes('favicon-32.png')) throw new Error('没有引用 favicon-32.png');
+  return 'favicon-32.png + apple-touch-icon + 192/512';
+});
+
+check('安卓图标单独出一份 maskable（拿高清图标硬顶会被系统裁掉四角）', () => {
+  const man = JSON.parse(readFileSync(new URL('./public/manifest.json', import.meta.url), 'utf8'));
+  const mask = man.icons.filter(i => (i.purpose || '').includes('maskable'));
+  if (mask.length !== 1) throw new Error(`maskable 图标应当只有 1 份，实际 ${mask.length} 份`);
+  if (mask[0].src !== './pwa-icon-maskable-512.png') throw new Error('maskable 指错了：' + mask[0].src);
+  const mixed = man.icons.filter(i => (i.purpose || '').includes('any maskable'));
+  if (mixed.length) throw new Error('还有图标写着 "any maskable"：' + mixed.map(i => i.src).join());
+  const { w } = pngSize(readFileSync(pub('pwa-icon-maskable-512.png')));
+  if (w !== 512) throw new Error('maskable 边长不对：' + w);
+  return '192/512 = any，另出 1 份 maskable 512';
+});
+
+check('iOS 主屏图标（apple-touch-icon）是 180×180', () => {
+  const { w, h } = pngSize(readFileSync(pub('apple-touch-icon.png')));
+  if (w !== 180 || h !== 180) throw new Error(`实际 ${w}×${h}`);
+  return '180×180';
+});
+
+check('版本区块里写了「怎么自己换图标」', () => {
+  const h = R(React.createElement(VersionSection, { defaultOpen: true }));
+  if (!h.includes('想换掉这个图标')) throw new Error('没给换图标的入口');
+  if (!h.includes('我的图标.png')) throw new Error('没告诉用户图片该叫什么名字');
+  if (!h.includes('添加到主屏幕')) throw new Error('没提醒手机上的图标要重新添加才会变');
+  return '指向交付包的「图标」文件夹';
+});
+
+check('换图标脚本与说明都在源码里，脚本带可执行位（打包/拷贝后别丢）', () => {
+  const files = ['换图标（Mac）.command', '说明.md'];
+  for (const f of files) readFileSync(new URL('./replace-icon/' + f, import.meta.url));
+  const mode = statSync(new URL('./replace-icon/' + files[0], import.meta.url)).mode;
+  if (!(mode & 0o111)) throw new Error('「换图标（Mac）.command」没有可执行位，双击会是灰的');
+  return files.join(' + ');
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
