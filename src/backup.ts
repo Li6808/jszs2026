@@ -1,0 +1,225 @@
+/* ============================================================
+   全量备份 / 恢复
+   所有数据都存在浏览器 localStorage 里 —— 清缓存、换手机就等于全丢。
+   这里提供一次性导出 JSON、以及导入恢复(覆盖 / 合并)两种模式。
+   ============================================================ */
+
+import { getData, setData, markBackedUp, getCorruptBackup } from './storage';
+import type { AppData } from './types';
+
+const APP_TAG = 'teacher-assistant-backup';
+const FORMAT_VERSION = 1;
+
+export interface BackupFile {
+  app: string;
+  version: number;
+  exportedAt: string;
+  summary: string;
+  data: AppData;
+}
+
+function todayStamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 课表总节数（schedule.courses 按星期几分组） */
+function scheduleCount(st?: AppData['settings']): number {
+  const courses = st?.schedule?.courses;
+  if (!courses) return 0;
+  return Object.values(courses).reduce((s, arr) => s + (arr?.length || 0), 0);
+}
+
+/** 生成一份可读的数据概览,导入时给用户确认 */
+export function summarize(data: AppData): string {
+  const parts: string[] = [];
+  parts.push(`请假 ${data.history?.length || 0} 条`);
+  parts.push(`课表 ${scheduleCount(data.settings)} 节`);
+  parts.push(`工资 ${data.salaries?.length || 0} 条`);
+  parts.push(`值班/代课 ${data.duties?.length || 0} 条`);
+  parts.push(`作业收缴 ${data.homeworkRecords?.length || 0} 个班`);
+  const rec = data.reciteRecords || [];
+  const stu = rec.reduce((s, r) => s + (r.students?.length || 0), 0);
+  parts.push(`背诵 ${rec.length} 个班 / ${stu} 名学生`);
+  parts.push(data.settings ? '设置已含' : '设置未填');
+  return parts.join(' · ');
+}
+
+export interface ScopeItem {
+  icon: string;
+  label: string;
+  detail: string;
+}
+
+/**
+ * 逐模块列出「这份备份里到底装了什么」。
+ * 特意把 0 条的模块也列出来 —— 要回答的是「是不是全都导了」，
+ * 而不是「哪些有内容」，缺项露出来反而更让人放心。
+ */
+export function describeScope(data: AppData): ScopeItem[] {
+  const hw = data.homeworkRecords || [];
+  const hwStu = hw.reduce((s, r) => s + (r.students?.length || 0), 0);
+  const rec = data.reciteRecords || [];
+  const recStu = rec.reduce((s, r) => s + (r.students?.length || 0), 0);
+  const recPoem = rec.reduce((s, r) => s + (r.poems?.length || 0), 0);
+  const st = data.settings;
+  return [
+    { icon: '📝', label: '请假记录', detail: `${data.history?.length || 0} 条` },
+    { icon: '📋', label: '我的课表', detail: `${scheduleCount(st)} 节` },
+    { icon: '💰', label: '工资统计', detail: `${data.salaries?.length || 0} 条` },
+    { icon: '📅', label: '值班 / 代课', detail: `${data.duties?.length || 0} 条` },
+    { icon: '📚', label: '作业收缴', detail: `${hw.length} 个班 · ${hwStu} 名学生` },
+    { icon: '📖', label: '古诗文背诵', detail: `${rec.length} 个班 · ${recStu} 名学生 · ${recPoem} 篇` },
+    { icon: '⚙️', label: '个人设置', detail: st ? '姓名／学校／学期／节次等' : '尚未填写' },
+  ];
+}
+
+/** 备份包里**不包含**的东西,避免用户误以为「连登录态一起备份了」 */
+export const BACKUP_EXCLUDES = '云端登录信息不包含在备份里（避免换设备时把账号带过去），需要在新设备上重新登录一次。';
+
+
+/** 组装备份对象 */
+export function buildBackup(): BackupFile {
+  const data = getData();
+  return {
+    app: APP_TAG,
+    version: FORMAT_VERSION,
+    exportedAt: new Date().toISOString(),
+    summary: summarize(data),
+    data,
+  };
+}
+
+const PREF_KEY = 'teacher_backup_prefix';
+
+/** 导出为文件(返回文件名);prefix 可在设置里改成教师姓名 */
+export function exportBackup(): string {
+  const bak = buildBackup();
+  const prefix = localStorage.getItem(PREF_KEY) || '教师助手';
+  const name = `${prefix}_数据备份_${todayStamp()}.json`;
+  const blob = new Blob([JSON.stringify(bak, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  markBackedUp();
+  return name;
+}
+
+/**
+ * 导出损坏数据的原始内容。
+ * 数据损坏时 getData 已把原始串留档，这里让用户下载留存，
+ * 以便人工修复或交回分析 —— 而不是直接丢掉。
+ */
+export function exportCorruptRaw(): string | null {
+  const raw = getCorruptBackup();
+  if (!raw) return null;
+  const name = `教师助手_损坏数据原始内容_${todayStamp()}.txt`;
+  const blob = new Blob([raw], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return name;
+}
+
+export function setBackupPrefix(p: string) {
+  try { localStorage.setItem(PREF_KEY, p || '教师助手'); } catch { /* ignore */ }
+}
+export function getBackupPrefix(): string {
+  try { return localStorage.getItem(PREF_KEY) || '教师助手'; } catch { return '教师助手'; }
+}
+
+/** 复制备份内容到剪贴板(手机上不方便存文件时的退路) */
+export function backupAsText(): string {
+  return JSON.stringify(buildBackup());
+}
+
+export interface ParseResult {
+  ok: boolean;
+  error?: string;
+  file?: BackupFile;
+}
+
+/** 解析并校验备份文件 */
+export function parseBackup(text: string): ParseResult {
+  let obj: any;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return { ok: false, error: '不是合法的 JSON 文件，请确认选的是本工具导出的 .json 备份。' };
+  }
+  if (!obj || typeof obj !== 'object') return { ok: false, error: '文件内容为空。' };
+  // 兼容用户直接粘贴 localStorage 原始数据的情况
+  if (!obj.app && (obj.history || obj.salaries || obj.reciteRecords)) {
+    obj = { app: APP_TAG, version: FORMAT_VERSION, exportedAt: '', data: obj };
+  }
+  if (obj.app !== APP_TAG) return { ok: false, error: '这不是「教师助手」的备份文件。' };
+  if (typeof obj.version === 'number' && obj.version > FORMAT_VERSION) {
+    return { ok: false, error: `备份文件版本(v${obj.version})比当前应用更新，请先升级应用。` };
+  }
+  const d = obj.data;
+  if (!d || typeof d !== 'object') return { ok: false, error: '备份文件里没有数据。' };
+  return { ok: true, file: obj as BackupFile };
+}
+
+/* ---------- 合并模式:按 id 去重后合并,不丢现有数据 ---------- */
+
+function mergeById<T extends { id: string }>(cur: T[] | undefined, inc: T[] | undefined): T[] {
+  const out = [...(cur || [])];
+  const have = new Set(out.map(x => x.id));
+  for (const item of inc || []) {
+    if (item && item.id && !have.has(item.id)) { out.push(item); have.add(item.id); }
+  }
+  return out;
+}
+
+export function mergeIntoCurrent(inc: AppData): AppData {
+  const cur = getData();
+  return {
+    ...cur,
+    history: [...(cur.history || []), ...(inc.history || [])].slice(0, 100),
+    salaries: mergeById(cur.salaries, inc.salaries),
+    duties: mergeById(cur.duties, inc.duties),
+    homeworkRecords: mergeById(cur.homeworkRecords, inc.homeworkRecords),
+    reciteRecords: mergeById(cur.reciteRecords, inc.reciteRecords),
+    settings: cur.settings || inc.settings || null,
+  };
+}
+
+export function applyBackup(data: AppData, mode: 'replace' | 'merge') {
+  if (mode === 'merge') setData(mergeIntoCurrent(data));
+  else setData(data);
+}
+
+/** 距离上次备份的天数;从没备份过返回 Infinity */
+export function daysSinceBackup(): number {
+  const { lastBackupAt } = getBackupMetaLocal();
+  if (!lastBackupAt) return Infinity;
+  const ms = Date.now() - new Date(lastBackupAt).getTime();
+  return Math.floor(ms / 86400000);
+}
+
+function getBackupMetaLocal(): { lastBackupAt: string | null } {
+  try {
+    const raw = localStorage.getItem('teacher_backup_meta');
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { lastBackupAt: null };
+}
+
+/** 数据体量估算(给用户一个「值不值得备份」的直觉) */
+export function dataSizeKB(): number {
+  try {
+    return Math.round((localStorage.getItem('teacher_assistant_v3') || '').length / 1024);
+  } catch { return 0; }
+}

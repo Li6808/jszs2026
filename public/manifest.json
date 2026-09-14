@@ -1,7 +1,7 @@
 {
   "name": "教师个人助手",
   "short_name": "教师助手",
-  "description": "教师的个人小工具:请假条、课表、工资、作业收缴、值班、代课、支付截图",
+  "description": "教师的个人小工具:请假条、课表、作业收缴、古诗文背诵、工资、值班、代课、支付截图",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -1,0 +1,14 @@
+{
+  "_help": "复制本文件为 config.json 后修改。字段说明见同目录 README.md。",
+
+  "port": 8787,
+  "host": "127.0.0.1",
+
+  "dataDir": "./data",
+  "staticDir": "",
+
+  "inviteCode": "",
+  "adminUser": "",
+  "allowedOrigins": "",
+  "maxBlobMB": 24
+}

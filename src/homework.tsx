@@ -30,13 +30,13 @@ const HW_PROMPT = `请识别这张「学生作业登记表格」图片,严格按
 【输出格式】(每行一位学生,字段间用空格分隔)
 序号 姓名 性别 班级
 
-【示例】
-1 张三 男 5班
-2 李四 女 5班
-3 王五 男 5班
+【示例】(仅示意格式,姓名一律用 ×× 代替)
+1 张×× 男 5班
+2 李×× 女 5班
+3 王×× 男 5班
 
 【要求】
-1. 严格按图中实际内容输出,不要猜测
+1. 严格按图中实际内容输出,不要猜测,更不要照抄示例里的 ××
 2. 性别只能写「男」或「女」,班级只写简称(如「5班」)
 3. 序号按图片中的顺序从 1 开始递增
 4. 不要输出标题行(如「序号」「姓名」等字段名)
@@ -303,7 +303,7 @@ function ClassEditor({ recordId, onClose, onSaved, onDeleted, toast }: {
           </div>
           <div className="form-group flex1">
             <label>班主任电话</label>
-            <input className="form-input" value={teacherPhone} onChange={e => setTeacherPhone(e.target.value)} placeholder="如:15213605001" />
+            <input className="form-input" value={teacherPhone} onChange={e => setTeacherPhone(e.target.value)} placeholder="如:138××××××××" />
           </div>
         </div>
         <div className="form-group">
@@ -344,9 +344,9 @@ function ClassEditor({ recordId, onClose, onSaved, onDeleted, toast }: {
                   value={importText}
                   onChange={e => setImportText(e.target.value)}
                   rows={6}
-                  placeholder={`1 张三 男 5班\n2 李四 女 5班\n3 王五 男 5班\n\n(也可省略序号、班级,只填姓名)`}
+                  placeholder={`1 张×× 男 5班\n2 李×× 女 5班\n3 王×× 男 5班\n\n(也可省略序号、班级,只填姓名)`}
                 />
-                <p className="hint">支持格式:「张三 男」、「1 张三 男 5班」、「张三,男,5班」等</p>
+                <p className="hint">支持格式:「张×× 男」、「1 张×× 男 5班」、「张××,男,5班」等（×× 只是占位，填真实姓名即可）</p>
               </div>
               <div className="btn-row">
                 <button className="btn btn-primary btn-small" onClick={doImport}>📥 导入</button>

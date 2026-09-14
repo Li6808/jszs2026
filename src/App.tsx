@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   getData, saveSettings, saveHistory, clearAll,
   importSalariesFromText, saveSalary, deleteSalary,
@@ -11,15 +11,27 @@ import { calcDays, getWeekByStartDate, getSemesterText, wday, wdayFull, LEAVE_TY
 import { exportSalaryCSV, exportSalaryHTML, exportDutyCSV, exportDutyHTML, exportSubCSV, exportSubHTML } from './export';
 import type { SubRow, SalaryRecord, DutyRecord } from './types';
 import { HomeworkPage } from './homework';
+import { RecitePage } from './recite';
+import {
+  getBackupMeta, onStorageIssue, getStorageIssue, resetAfterCorruption,
+} from './storage';
+import type { StorageIssue } from './storage';
+import {
+  exportBackup, parseBackup, applyBackup, summarize, backupAsText,
+  dataSizeKB, daysSinceBackup, exportCorruptRaw, describeScope, BACKUP_EXCLUDES,
+} from './backup';
+import { makeQrDataUrl } from './qr';
+import { CloudPanel } from './cloudPanel';
 import './App.css';
 
-type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework';
+type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework' | 'recite';
 
 /* ===== Module Config ===== */
 const MODULE_CONFIG: Record<string, { icon: string; iconClass: string; name: string; desc: string }> = {
   leave: { icon: '📝', iconClass: 'red', name: '请假条', desc: '生成标准请假条' },
   schedule: { icon: '📋', iconClass: 'blue', name: '我的课表', desc: '查看个人课表' },
   homework: { icon: '📚', iconClass: 'green', name: '作业收缴', desc: '学生作业完成登记' },
+  recite: { icon: '📖', iconClass: 'yellow', name: '古诗文背诵', desc: '背诵默写过关统计' },
   salary: { icon: '💰', iconClass: 'green', name: '工资统计', desc: '收入记录与图表' },
   duty: { icon: '📅', iconClass: 'yellow', name: '值班统计', desc: '值班记录与统计' },
   substitute: { icon: '📊', iconClass: 'purple', name: '代课统计', desc: '给别人代课统计' },
@@ -47,6 +59,39 @@ function App() {
     const el = toastRef.current;
     if (el) { el.textContent = msg; el.style.display = 'block'; setTimeout(() => { if (el) el.style.display = 'none'; }, 2000); }
   }, []);
+
+  /**
+   * 存储层告警收口。
+   * 原来写入是裸的 localStorage.setItem —— 配额写满会抛异常且无人处理，
+   * 用户以为标记成功了，其实一条都没存上。现在统一在这里提示出来。
+   */
+  const [storageIssue, setStorageIssue] = useState<StorageIssue | null>(() => getStorageIssue());
+
+  useEffect(() => {
+    // 先取一次「启动前」就已发生的问题（例如数据文件损坏）
+    const already = getStorageIssue();
+    if (already) setStorageIssue(already);
+    return onStorageIssue(issue => {
+      setStorageIssue(issue);
+      // 损坏需要常驻横幅；其余用轻提示就够
+      if (issue.kind !== 'corrupt') toast('⚠️ ' + issue.message);
+    });
+  }, [toast]);
+
+  const dismissStorageIssue = useCallback(() => setStorageIssue(null), []);
+
+  const handleDownloadCorrupt = useCallback(() => {
+    const name = exportCorruptRaw();
+    toast(name ? `✅ 已导出：${name}` : '没有找到可导出的原始内容');
+  }, [toast]);
+
+  const handleResetCorrupt = useCallback(() => {
+    if (!confirm('确定要放弃这份损坏的数据吗？\n\n原始内容会被清除且无法找回。\n如果还没下载，请先点「下载原始数据」。')) return;
+    resetAfterCorruption();
+    setStorageIssue(null);
+    refresh();
+    toast('已清除损坏数据，可以从头开始使用');
+  }, [refresh, toast]);
 
   // 监听 input/textarea 焦点,显示一键粘贴浮动按钮(iOS PWA 兼容)
   useEffect(() => {
@@ -211,7 +256,7 @@ function App() {
   }, [isHome, goBack]);
 
   const settings = data.settings;
-  const schoolName = settings?.schoolName || '丰都县第三中学校';
+  const schoolName = settings?.schoolName || '××中学';
   const semesterText = getSemesterText(settings?.semesterName);
   const schedule = settings?.schedule;
   const periodNames = settings?.periodNames || getDefaultPeriodNames();
@@ -219,6 +264,8 @@ function App() {
 
   const swipeOffset = swipeProgress * 90;
   const swipeOpacity = swipeProgress;
+  /** 底部导航的选中态(用 string 比较,避免 TS 对 page 做字面量收窄) */
+  const navActive = (p: string) => (page === p ? 'active' : '');
 
   return (
     <div className="app">
@@ -237,19 +284,20 @@ function App() {
         {isHome && <HomePage navigate={navigate} moduleOrder={moduleOrder} />}
         {page === 'leave' && <LeavePage settings={settings} schoolName={schoolName} semesterText={semesterText} periodNames={periodNames} toast={toast} refresh={refresh} openQr={openQr} />}
         {page === 'schedule' && <SchedulePage settings={settings} periodNames={periodNames} schedule={schedule} toast={toast} openQr={openQr} />}
-        {page === 'settings' && <SettingsPage settings={settings} toast={toast} refresh={refresh} moduleOrder={moduleOrder} />}
+        {page === 'settings' && <SettingsPage settings={settings} toast={toast} refresh={refresh} moduleOrder={moduleOrder} openQr={openQr} />}
         {page === 'salary' && <SalaryPage toast={toast} />}
         {page === 'duty' && <DutyOnlyPage toast={toast} />}
         {page === 'substitute' && <SubstituteOnlyPage toast={toast} />}
         {page === 'payment' && <PaymentPage toast={toast} openQr={openQr} />}
         {page === 'homework' && <HomeworkPage toast={toast} openQr={openQr} />}
+        {page === 'recite' && <RecitePage toast={toast} openQr={openQr} />}
       </main>
 
-      {pageStack.length <= 1 && (
+      {isHome && (
         <nav className="bottom-nav">
-          <button className={`nav-item ${page === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}><span className="nav-icon">🏠</span><span>首页</span></button>
-          <button className={`nav-item ${page === 'schedule' ? 'active' : ''}`} onClick={() => navigate('schedule')}><span className="nav-icon">📋</span><span>课表</span></button>
-          <button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><span className="nav-icon">👤</span><span>我的</span></button>
+          <button className={`nav-item ${navActive('home')}`} onClick={() => navigate('home')}><span className="nav-icon">🏠</span><span>首页</span></button>
+          <button className={`nav-item ${navActive('schedule')}`} onClick={() => navigate('schedule')}><span className="nav-icon">📋</span><span>课表</span></button>
+          <button className={`nav-item ${navActive('settings')}`} onClick={() => navigate('settings')}><span className="nav-icon">👤</span><span>我的</span></button>
         </nav>
       )}
 
@@ -268,6 +316,26 @@ function App() {
         </div>
       )}
 
+      {storageIssue && (
+        <div className={`storage-alert storage-alert-${storageIssue.kind}`} role="alert">
+          <div className="storage-alert-head">
+            <span className="storage-alert-title">
+              {storageIssue.kind === 'corrupt' ? '⚠️ 本地数据文件损坏' : '⚠️ 数据未能保存'}
+            </span>
+            {storageIssue.kind !== 'corrupt' && (
+              <button className="storage-alert-close" onClick={dismissStorageIssue} aria-label="关闭">✕</button>
+            )}
+          </div>
+          <p className="storage-alert-text">{storageIssue.message}</p>
+          {storageIssue.kind === 'corrupt' && (
+            <div className="storage-alert-actions">
+              <button className="btn btn-small btn-primary" onClick={handleDownloadCorrupt}>下载原始数据</button>
+              <button className="btn btn-small btn-outline" onClick={handleResetCorrupt}>放弃并重新开始</button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div ref={toastRef} className="toast" />
 
       {qrUrl && <QrShareModal url={qrUrl} onClose={closeQr} toast={toast} />}
@@ -277,7 +345,8 @@ function App() {
 
 /* ============ 二维码分享模态框 ============ */
 function QrShareModal({ url, onClose, toast }: { url: string; onClose: () => void; toast: (m: string) => void }) {
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=10&bgcolor=ffffff&color=000000&data=${encodeURIComponent(url)}`;
+  // 本地生成,不再依赖第三方二维码接口:断网或对方服务异常时照样能扫
+  const qrSrc = useMemo(() => makeQrDataUrl(url, 6), [url]);
 
   const copyLink = async () => {
     try {
@@ -296,7 +365,9 @@ function QrShareModal({ url, onClose, toast }: { url: string; onClose: () => voi
           <button className="qr-modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="qr-modal-body">
-          <img src={qrSrc} alt="QR Code" className="qr-img" />
+          {qrSrc
+            ? <img src={qrSrc} alt="分享二维码" className="qr-img" />
+            : <div className="qr-img-error">二维码生成失败，请改用下方「复制链接」</div>}
           <p className="qr-hint">📲 用手机相机/微信扫一扫即可打开</p>
           <p className="qr-hint-sub">iPhone Safari / Android Chrome 可"添加到主屏幕",像 App 一样使用</p>
           <div className="qr-url-box">{url}</div>
@@ -313,19 +384,38 @@ function QrShareModal({ url, onClose, toast }: { url: string; onClose: () => voi
 
 /* ============ 首页 ============ */
 function HomePage({ navigate, moduleOrder }: { navigate: (p: Page) => void; moduleOrder: string[] }) {
+  // 备份提醒：只在「确实有数据」且「超过 14 天没备份」时出现
+  const d = getData();
+  const hasData = (d.history?.length || 0) + (d.salaries?.length || 0) + (d.duties?.length || 0)
+    + (d.homeworkRecords?.length || 0) + (d.reciteRecords?.length || 0) > 0;
+  const days = daysSinceBackup();
+  const needBackup = hasData && (days === Infinity || days >= 14);
+
   return (
-    <div className="home-grid">
-      {moduleOrder.map(key => {
-        const mod = MODULE_CONFIG[key];
-        if (!mod) return null;
-        return (
-          <div key={key} className="feature-card" onClick={() => navigate(key as Page)}>
-            <div className={`feature-icon ${mod.iconClass}`}>{mod.icon}</div>
-            <div className="feature-name">{mod.name}</div>
-            <div className="feature-desc">{mod.desc}</div>
+    <div>
+      {needBackup && (
+        <div className="backup-tip" onClick={() => navigate('settings')}>
+          <span className="backup-tip-icon">💾</span>
+          <div className="backup-tip-text">
+            <b>{days === Infinity ? '你的数据还没备份过' : `上次备份已经是 ${days} 天前了`}</b>
+            <em>数据只存在这台设备里，清缓存或换手机会全部丢失，建议导出备份</em>
           </div>
-        );
-      })}
+          <span className="backup-tip-go">去备份 ›</span>
+        </div>
+      )}
+      <div className="home-grid">
+        {moduleOrder.map(key => {
+          const mod = MODULE_CONFIG[key];
+          if (!mod) return null;
+          return (
+            <div key={key} className="feature-card" onClick={() => navigate(key as Page)}>
+              <div className={`feature-icon ${mod.iconClass}`}>{mod.icon}</div>
+              <div className="feature-name">{mod.name}</div>
+              <div className="feature-desc">{mod.desc}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -606,7 +696,7 @@ function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
 
     // 标题
     ctx.fillStyle = '#c41e3a'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText((settings?.schoolName || '丰都县第三中学校') + ' 课程表', cw / 2, 32);
+    ctx.fillText((settings?.schoolName || '××中学') + ' 课程表', cw / 2, 32);
 
     // 表头
     ctx.fillStyle = '#fde8eb'; ctx.fillRect(lm, tm, 100, rh);
@@ -789,9 +879,9 @@ function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
 }
 
 /* ============ 设置（含模块排序） ============ */
-function SettingsPage({ settings, toast, refresh, moduleOrder }: any) {
-  // 学校名称默认"丰都县第三中学校"
-  const defaultSchoolName = '丰都县第三中学校';
+function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
+  // 学校名称默认留空占位（"××中学"），由使用者自己在设置里填写
+  const defaultSchoolName = '××中学';
   // 学期自动计算
   const defaultSemester = getSemesterText('');
   const [name, setName] = useState(settings?.name || '');
@@ -803,6 +893,60 @@ function SettingsPage({ settings, toast, refresh, moduleOrder }: any) {
   const [timeTableText, setTimeTableText] = useState(() => { const tt = settings?.timeTable || []; return tt.map((t: any) => `${t.name} ${t.startTime}-${t.endTime}`).join('\n'); });
   const [expanded, setExpanded] = useState<string>('basic');
   const [localOrder, setLocalOrder] = useState<string[]>(moduleOrder);
+
+  /* ---- 数据备份 ---- */
+  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
+  const [backupInfo, setBackupInfo] = useState(() => getBackupMeta());
+  const backupFileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * 「这份备份里装了什么」清单。
+   * 只在备份区块展开时才计算 —— getData() 要解析整份 localStorage（几 MB 时好几毫秒），
+   * 放在渲染路径上会在设置页里每敲一个字都重新解析一遍。
+   */
+  const backupScope = useMemo(
+    () => (expanded === 'backup' ? describeScope(getData()) : []),
+    [expanded, backupInfo],
+  );
+
+  const doExportBackup = () => {
+    const name = exportBackup();
+    setBackupInfo(getBackupMeta());
+    toast(`✅ 已导出 ${name}`);
+  };
+
+  const doImportBackup = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = parseBackup(String(reader.result || ''));
+      if (!res.ok || !res.file) { toast('❌ ' + (res.error || '解析失败')); return; }
+      const info = summarize(res.file.data);
+      const when = res.file.exportedAt ? new Date(res.file.exportedAt).toLocaleString() : '未知时间';
+      const ok = confirm(
+        `备份文件时间：${when}\n备份内容：${info}\n\n` +
+        (importMode === 'replace'
+          ? '导入方式：覆盖 —— 这台设备上现有的数据会被全部替换，且无法恢复！\n\n确定继续吗？'
+          : '导入方式：合并 —— 现有数据会保留，备份里多出来的记录会追加进来。\n\n确定继续吗？'),
+      );
+      if (!ok) return;
+      try {
+        applyBackup(res.file.data, importMode);
+        setBackupInfo(getBackupMeta());
+        toast('✅ 导入完成，正在刷新…');
+        setTimeout(() => window.location.reload(), 900);
+      } catch (e) {
+        toast('❌ 导入失败：' + String(e));
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const doCopyBackup = () => {
+    const text = backupAsText();
+    navigator.clipboard?.writeText(text)
+      .then(() => toast('✅ 备份内容已复制，粘贴到备忘录/网盘保存'))
+      .catch(() => toast('复制失败，请改用「导出备份文件」'));
+  };
 
   const save = () => {
     if (!name) { toast('请输入教师姓名'); return; }
@@ -936,6 +1080,75 @@ function SettingsPage({ settings, toast, refresh, moduleOrder }: any) {
             )}
           </div>
           <div className="settings-section">
+            <div className={`section-header ${expanded === 'backup' ? '' : 'collapsed'}`} onClick={() => setExpanded(expanded === 'backup' ? '' : 'backup')}>
+              <span>💾 数据备份与恢复</span><span>{expanded === 'backup' ? '▼' : '▶'}</span>
+            </div>
+            {expanded === 'backup' && (
+              <div className="section-body">
+                <div className="info-box">
+                  <div>
+                    上次备份：
+                    <b style={{ color: backupInfo.lastBackupAt ? '#34C759' : '#FF9500' }}>
+                      {backupInfo.lastBackupAt
+                        ? new Date(backupInfo.lastBackupAt).toLocaleString()
+                        : '从未备份过'}
+                    </b>
+                  </div>
+                  <div>当前数据量：约 <b>{dataSizeKB()}</b> KB · 已备份 {backupInfo.count} 次</div>
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    ⚠️ 所有数据（请假、课表、工资、值班、代课、作业收缴、背诵统计、个人设置）只保存在这台设备的浏览器里。
+                    <b>清理缓存、换手机、卸载浏览器都会导致数据全部丢失</b>，而且找不回来。建议每周导出一次备份，存在微信文件传输助手或网盘里。
+                  </div>
+                </div>
+
+                <button className="btn btn-primary btn-block" onClick={doExportBackup}>
+                  ⬇️ 导出备份文件（.json）
+                </button>
+
+                <div className="bk-scope">
+                  <div className="bk-scope-title">
+                    ✅ 一次导出即包含<b>全部模块</b>，不需要逐个板块分别备份
+                  </div>
+                  {backupScope.map(it => (
+                    <div key={it.label} className="bk-scope-row">
+                      <span className="bk-scope-name">{it.icon} {it.label}</span>
+                      <b className="bk-scope-detail">{it.detail}</b>
+                    </div>
+                  ))}
+                  <div className="bk-scope-note">{BACKUP_EXCLUDES}</div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: 14 }}>
+                  <label>导入备份时的处理方式</label>
+                  <div className="rc-seg">
+                    {([['merge', '合并（推荐·不丢现有数据）'], ['replace', '覆盖（用备份完全替换）']] as const).map(([k, l]) => (
+                      <div key={k} className={`rc-seg-item ${importMode === k ? 'active' : ''}`}
+                        style={{ flex: 1, textAlign: 'center' }} onClick={() => setImportMode(k)}>{l}</div>
+                    ))}
+                  </div>
+                  <p className="hint">
+                    {importMode === 'merge'
+                      ? '合并：现有记录全部保留，备份里独有的记录会追加进来，适合「换了新手机想把旧数据搬过来」。'
+                      : '覆盖：这台设备上的数据会被备份内容整体替换，且无法撤销，请谨慎使用。'}
+                  </p>
+                </div>
+
+                <button className="btn btn-outline btn-block" onClick={() => backupFileRef.current?.click()}>
+                  ⬆️ 选择备份文件并导入
+                </button>
+                <input ref={backupFileRef} type="file" accept=".json,application/json" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) doImportBackup(f); e.target.value = ''; }} />
+
+                <button className="btn btn-secondary btn-block" style={{ marginTop: 8 }} onClick={doCopyBackup}>
+                  📋 复制备份内容（不方便存文件时，粘贴到备忘录即可）
+                </button>
+              </div>
+            )}
+          </div>
+
+          <CloudPanel toast={toast} openQr={openQr} />
+
+          <div className="settings-section">
             <div className={`section-header ${expanded === 'modules' ? '' : 'collapsed'}`} onClick={() => setExpanded(expanded === 'modules' ? '' : 'modules')}>
               <span>🧩 首页模块排序</span><span>{expanded === 'modules' ? '▼' : '▶'}</span>
             </div>
@@ -959,7 +1172,7 @@ function SettingsPage({ settings, toast, refresh, moduleOrder }: any) {
           </div>
           <div className="btn-row">
             <button className="btn btn-primary" onClick={save}>💾 保存设置</button>
-            <button className="btn btn-secondary" onClick={() => { setName('李成'); setSchoolName('丰都县第三中学校'); setSemesterName(''); setStartSchoolDate('2026-03-04'); setScheduleText(`星期一 晨读 初一(1)语早\n星期一 第2节 初二(4)语文\n星期一 第4节 初一(1)语文\n星期一 第5节 初一(1)语文\n星期二 晨读 初一(1)语早\n星期二 第1节 初二(4)语文\n星期二 第2节 初二(4)语文\n星期三 晨读 初二(4)语早\n星期三 第1节 初一(1)语文\n星期三 第2节 初二(4)语文\n星期三 第3节 初一(1)语文\n星期四 第2节 初一(1)语文\n星期四 第3节 初一(1)语文\n星期四 第4节 初二(4)语文\n星期五 第1节 初一(1)语文\n星期五 第2节 初一(1)语文\n星期五 第5节 初二(4)语文`); setPeriodNames(getDefaultPeriodNames().join('\n')); }}>📖 加载示例</button>
+            <button className="btn btn-secondary" onClick={() => { setName('张××'); setSchoolName('××中学'); setSemesterName(''); setStartSchoolDate('2026-03-04'); setScheduleText(`星期一 晨读 初一(1)语早\n星期一 第2节 初二(1)语文\n星期一 第4节 初一(1)语文\n星期一 第5节 初一(1)语文\n星期二 晨读 初一(1)语早\n星期二 第1节 初二(1)语文\n星期二 第2节 初二(1)语文\n星期三 晨读 初二(1)语早\n星期三 第1节 初一(1)语文\n星期三 第2节 初二(1)语文\n星期三 第3节 初一(1)语文\n星期四 第2节 初一(1)语文\n星期四 第3节 初一(1)语文\n星期四 第4节 初二(1)语文\n星期五 第1节 初一(1)语文\n星期五 第2节 初一(1)语文\n星期五 第5节 初二(1)语文`); setPeriodNames(getDefaultPeriodNames().join('\n')); }}>📖 加载示例</button>
           </div>
           <button className="btn btn-danger btn-block" style={{ marginTop: 8 }} onClick={() => { if (confirm('确定清空所有设置？')) { clearAll(); refresh(); toast('已清空'); } }}>🗑️ 清空所有设置</button>
         </div>

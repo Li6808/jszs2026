@@ -75,6 +75,71 @@ export interface AppData {
   salaries: SalaryRecord[];
   duties: DutyRecord[];
   homeworkRecords?: HomeworkRecord[];
+  reciteRecords?: ReciteRecord[];
+}
+
+/* ===== 古诗文背诵统计(新增模块) ===== */
+
+/** 过关状态:未背 / 已背(背诵过关) / 已默写(默写过关,最高级) / 待补背(抽查没过,需重来) */
+export type ReciteStatus = 'todo' | 'recited' | 'written' | 'redo';
+
+/** 默写题（名句填空）:prompt 是给考生的上句/提示,answer 是要求默写的部分 */
+export interface ReciteQuiz {
+  p: string;
+  a: string;
+}
+
+export interface RecitePoem {
+  id: string;
+  title: string;
+  author: string;                    // 作者或出处
+  type: string;                      // 诗 / 词 / 曲 / 文 / 现代诗
+  req: 'both' | 'recite';            // both=背诵+默写, recite=仅背诵
+  volume: string;                    // 所属册次,如「八年级上册」
+  order: number;                     // 排序
+  active: boolean;                   // 是否纳入本班当前进度
+  kebiao?: boolean;                  // 是否属于课标推荐背诵篇目(初中60/高中72)
+  dueDate?: string;                  // 计划完成日期 YYYY-MM-DD
+  quiz?: ReciteQuiz[];               // 默写题库
+}
+
+/** 学籍状态:在读 / 免检(免修、特长生等) / 已转出 */
+export type ReciteStudentStatus = 'active' | 'exempt' | 'left';
+
+export interface ReciteStudent {
+  id: string;
+  no: number;
+  name: string;
+  gender: '男' | '女';
+  className: string;
+  status?: ReciteStudentStatus;      // 省略视为 active
+  reason?: string;                   // 免检原因 / 转出去向
+  joinedAt?: string;                 // 转入日期
+  leftAt?: string;                   // 转出日期
+}
+
+/** 某位学生在某篇目上的过关记录 */
+export interface ReciteMark {
+  status: ReciteStatus;
+  reciteDate?: string;               // 背诵过关日期
+  writeDate?: string;                // 默写过关日期
+  note?: string;                     // 备注(抽背情况)
+  typos?: string[];                  // 该篇默写写错的字
+  checkedAt?: string;                // 最近一次抽查日期
+}
+
+export interface ReciteRecord {
+  id: string;
+  classFullName: string;             // 初二(4)班
+  classShortName: string;            // 4班
+  grade: string;                     // 初二
+  poems: RecitePoem[];
+  students: ReciteStudent[];
+  /** studentId → poemId → 过关记录 */
+  marks: Record<string, Record<string, ReciteMark>>;
+  planRate?: number;                 // 计划目标过关率(%),默认 80
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ===== 作业收缴(新增模块 - 参考「高一5班作业收缴登记表」) ===== */
