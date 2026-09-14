@@ -4,7 +4,7 @@ import {
   importSalariesFromText, saveSalary, deleteSalary,
   saveDuty, deleteDuty, setData,
   getSalaryCategories, saveSalaryCategories,
-  DEFAULT_MODULE_ORDER, DEFAULT_SALARY_CATEGORIES,
+  DEFAULT_SALARY_CATEGORIES, normalizeModuleOrder,
 } from './storage';
 import { drawLeaveCanvasA4 } from './leaveCanvas';
 import { calcDays, getWeekByStartDate, getSemesterText, wday, wdayFull, LEAVE_TYPES, getDefaultPeriodNames } from './utils';
@@ -19,6 +19,7 @@ import type { StorageIssue } from './storage';
 import {
   exportBackup, parseBackup, applyBackup, summarize, backupAsText,
   dataSizeKB, daysSinceBackup, exportCorruptRaw, describeScope, BACKUP_EXCLUDES,
+  getPreImportSnapshot, restorePreImport, snapshotBeforeImport,
 } from './backup';
 import { makeQrDataUrl } from './qr';
 import { CloudPanel } from './cloudPanel';
@@ -260,7 +261,10 @@ function App() {
   const semesterText = getSemesterText(settings?.semesterName);
   const schedule = settings?.schedule;
   const periodNames = settings?.periodNames || getDefaultPeriodNames();
-  const moduleOrder = settings?.moduleOrder || DEFAULT_MODULE_ORDER;
+  // 首页模块顺序：必须走 normalizeModuleOrder 补齐。
+  // 老数据（升级前保存过设置、或导入过旧备份）里的顺序缺后来新增的模块，
+  // 直接渲染会让「古诗文背诵」等新模块的卡片凭空消失。
+  const moduleOrder = normalizeModuleOrder(settings?.moduleOrder);
 
   const swipeOffset = swipeProgress * 90;
   const swipeOpacity = swipeProgress;
@@ -897,6 +901,8 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
   /* ---- 数据备份 ---- */
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [backupInfo, setBackupInfo] = useState(() => getBackupMeta());
+  /** 上次「覆盖导入」之前的数据快照（可一键退回） */
+  const [preImport, setPreImport] = useState(() => getPreImportSnapshot());
   const backupFileRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -929,9 +935,22 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
           : '导入方式：合并 —— 现有数据会保留，备份里多出来的记录会追加进来。\n\n确定继续吗？'),
       );
       if (!ok) return;
+      // 覆盖导入会把这台设备上的数据整体换掉，先留一份撤销快照。
+      // 快照存不下（数据偏大接近配额）时如实再问一次，而不是默默覆盖。
+      if (importMode === 'replace') {
+        const snapOk = snapshotBeforeImport();
+        if (!snapOk) {
+          const go = confirm(
+            '⚠️ 当前数据偏大，浏览器已存不下「撤销快照」。\n\n' +
+            '一旦覆盖，这台设备上的现有数据就无法找回了。\n\n仍要继续吗？',
+          );
+          if (!go) return;
+        }
+      }
       try {
         applyBackup(res.file.data, importMode);
         setBackupInfo(getBackupMeta());
+        setPreImport(getPreImportSnapshot());
         toast('✅ 导入完成，正在刷新…');
         setTimeout(() => window.location.reload(), 900);
       } catch (e) {
@@ -939,6 +958,18 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
       }
     };
     reader.readAsText(file);
+  };
+
+  /** 退回上次覆盖导入之前的数据 */
+  const doUndoImport = () => {
+    if (!confirm('恢复到上次「覆盖导入」之前的数据？\n\n这台设备上当前的数据会被替换掉（如果想留着，请先导出一份备份）。')) return;
+    if (restorePreImport()) {
+      setPreImport(null);
+      toast('✅ 已恢复到导入前的数据，正在刷新…');
+      setTimeout(() => window.location.reload(), 900);
+    } else {
+      toast('❌ 撤销失败，快照可能已被清理');
+    }
   };
 
   const doCopyBackup = () => {
@@ -1129,7 +1160,7 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
                   <p className="hint">
                     {importMode === 'merge'
                       ? '合并：现有记录全部保留，备份里独有的记录会追加进来，适合「换了新手机想把旧数据搬过来」。'
-                      : '覆盖：这台设备上的数据会被备份内容整体替换，且无法撤销，请谨慎使用。'}
+                      : '覆盖：这台设备上的数据会被备份内容整体替换。导入前会自动留一份撤销快照，万一不对可以在下面一键退回。'}
                   </p>
                 </div>
 
@@ -1138,6 +1169,17 @@ function SettingsPage({ settings, toast, refresh, moduleOrder, openQr }: any) {
                 </button>
                 <input ref={backupFileRef} type="file" accept=".json,application/json" style={{ display: 'none' }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) doImportBackup(f); e.target.value = ''; }} />
+
+                {preImport && (
+                  <div className="bk-undo">
+                    <div className="bk-undo-text">
+                      <b>↩️ 还能退回导入前的数据</b>
+                      <em>覆盖导入前的状态 · {new Date(preImport.at).toLocaleString()}</em>
+                      <em>{preImport.summary}</em>
+                    </div>
+                    <button className="btn btn-small btn-secondary" onClick={doUndoImport}>撤回那次导入</button>
+                  </div>
+                )}
 
                 <button className="btn btn-secondary btn-block" style={{ marginTop: 8 }} onClick={doCopyBackup}>
                   📋 复制备份内容（不方便存文件时，粘贴到备忘录即可）

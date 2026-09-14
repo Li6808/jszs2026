@@ -2,14 +2,19 @@
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { RecitePage, ClassEditor, ClassDetail, QuickCheck, isPassed } from './src/recite.tsx';
+import App from './src/App.tsx';
 import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } from './src/reciteData.ts';
 import {
   buildPoemsFromPreset, genId, importStudentsFromText, importPoemsFromText, parseQuizText,
   getReciteRecords, saveReciteRecord, clearUndo, pushUndo, popUndo, getUndoStack,
   pickWeightedStudent, isCounted, getData, mutateRecite, setData, clearAll,
   getStorageIssue, onStorageIssue, isReadOnly, resetAfterCorruption,
+  normalizeModuleOrder, getModuleOrder,
 } from './src/storage.ts';
-import { buildBackup, parseBackup, mergeIntoCurrent, summarize, describeScope } from './src/backup.ts';
+import {
+  buildBackup, parseBackup, mergeIntoCurrent, summarize, describeScope,
+  applyBackup, snapshotBeforeImport, getPreImportSnapshot, restorePreImport, clearPreImportSnapshot,
+} from './src/backup.ts';
 import { makeQrDataUrl } from './src/qr.ts';
 import { CloudPanel } from './src/cloudPanel.tsx';
 import {
@@ -858,6 +863,104 @@ check('登录态下的用户信息可正确读出', () => {
 });
 
 resetCloud();
+
+console.log('\n[13] 新增模块在首页不丢（旧备份导入回归）');
+/* 背景：`settings.moduleOrder` 是用户点「保存设置」时写下的，记的是**当时那个版本**的模块清单。
+   v22 新增古诗文背诵后，旧顺序里没有它 —— 一旦直接拿这个数组渲染首页，
+   新模块卡片就会凭空消失。用户实测就是「导入了以前导出的备份，首页回到旧样子」。
+   修法：读取层 + 导入时统一走 normalizeModuleOrder 补齐。以下断言锁住这个行为。 */
+
+/** 备份里真实出现过的旧顺序（v21 版默认值，只有 8 项） */
+const OLD_ORDER = ['leave', 'schedule', 'homework', 'salary', 'duty', 'substitute', 'payment', 'settings'];
+/** 首页 9 个模块卡片名 */
+const CARD_NAMES = ['请假条', '我的课表', '作业收缴', '古诗文背诵', '工资统计', '值班统计', '代课统计', '支付截图', '个人设置'];
+
+/** 渲染真实 App，返回首页出现的模块卡片名 */
+function homeCards() {
+  const html = renderToString(React.createElement(App)).replace(/<!-- -->/g, '');
+  return CARD_NAMES.filter(n => html.includes(`<div class="feature-name">${n}</div>`));
+}
+
+check('normalizeModuleOrder 补齐后来新增的模块', () => {
+  const full = normalizeModuleOrder(OLD_ORDER);
+  if (full.length !== getModuleOrder().length) throw new Error('长度未补齐: ' + full.length);
+  if (!full.includes('recite')) throw new Error('未补入 recite');
+  if (full.slice(0, OLD_ORDER.length).join() !== OLD_ORDER.join()) throw new Error('用户原有相对顺序被改动');
+  if (normalizeModuleOrder(undefined).length !== full.length) throw new Error('空值未回退到默认顺序');
+  if (normalizeModuleOrder([]).length !== full.length) throw new Error('空数组未回退到默认顺序');
+  const dirty = normalizeModuleOrder(['leave', '已删除的旧模块', 'recite']);
+  if (dirty.includes('已删除的旧模块')) throw new Error('未知模块未过滤');
+  if (dirty.length !== full.length) throw new Error('含未知项的数组未补齐');
+  return `8 → ${full.length} 项（顺序不变，新模块补在末尾）`;
+});
+
+check('读取层：旧 moduleOrder 一读出来就是补齐的', () => {
+  const keep = JSON.stringify(getData());
+  const st = getData().settings || {};
+  setData({ settings: { ...st, moduleOrder: OLD_ORDER }, history: [], salaries: [], duties: [], homeworkRecords: [], reciteRecords: [] });
+  const after = getData().settings.moduleOrder;
+  const rawOnDisk = JSON.parse(store['teacher_assistant_v3']).settings.moduleOrder;
+  setData(JSON.parse(keep));
+  if (!after.includes('recite')) throw new Error('读取层未补齐');
+  if (after.slice(0, OLD_ORDER.length).join() !== OLD_ORDER.join()) throw new Error('原有顺序被改动');
+  if (rawOnDisk.length !== OLD_ORDER.length) throw new Error('读取本身不该改写磁盘内容');
+  return `读出来 ${after.length} 项 · 磁盘原文未被动`;
+});
+
+check('导入旧备份：入库前即补齐（不只是渲染时补）', () => {
+  const keep = JSON.stringify(getData());
+  applyBackup({ settings: { ...(getData().settings || {}), moduleOrder: OLD_ORDER }, history: [], salaries: [], duties: [], homeworkRecords: [], reciteRecords: [] }, 'replace');
+  const onDisk = JSON.parse(store['teacher_assistant_v3']).settings.moduleOrder;
+  applyBackup(JSON.parse(keep), 'replace');
+  if (!onDisk.includes('recite')) throw new Error('落盘数据仍缺 recite');
+  if (onDisk.slice(0, OLD_ORDER.length).join() !== OLD_ORDER.join()) throw new Error('原有顺序被改动');
+  return `落盘顺序已含 recite（${onDisk.length} 项）`;
+});
+
+check('★ 导入旧备份后首页仍有「古诗文背诵」入口（真实渲染 App）', () => {
+  const keep = JSON.stringify(getData());
+  const before = homeCards();
+  applyBackup({ settings: { ...(getData().settings || {}), moduleOrder: OLD_ORDER }, history: [], salaries: [], duties: [], homeworkRecords: [], reciteRecords: [] }, 'replace');
+  const after = homeCards();
+  applyBackup(JSON.parse(keep), 'replace');
+  if (before.length !== CARD_NAMES.length) throw new Error('前置状态异常，首页只有 ' + before.length + ' 个模块');
+  const missing = CARD_NAMES.filter(n => !after.includes(n));
+  if (missing.length) throw new Error('导入后首页缺少：' + missing.join('、'));
+  return `${before.length} 个模块 → 导入旧备份后仍 ${after.length} 个`;
+});
+
+check('覆盖导入留撤销快照，可一键退回导入前状态', () => {
+  clearPreImportSnapshot();
+  if (getPreImportSnapshot()) throw new Error('清空后仍读到快照');
+  const keep = JSON.stringify(getData());
+  if (!snapshotBeforeImport()) throw new Error('快照写入失败');
+  const info = getPreImportSnapshot();
+  if (!info) throw new Error('读不到快照信息');
+  if (!info.at || !info.summary) throw new Error('快照信息不完整');
+  applyBackup({ settings: null, history: [], salaries: [], duties: [], homeworkRecords: [], reciteRecords: [] }, 'replace');
+  if (getData().reciteRecords.length !== 0) throw new Error('覆盖未生效');
+  if (!restorePreImport()) throw new Error('撤销失败');
+  if (JSON.stringify(getData()) !== keep) throw new Error('撤销后数据与导入前不一致');
+  if (getPreImportSnapshot()) throw new Error('撤销后快照应作废');
+  return `快照「${info.summary.slice(0, 24)}…」→ 撤销后逐字节还原`;
+});
+
+check('过期的撤销快照会被自动清理', () => {
+  clearPreImportSnapshot();
+  const old = new Date(Date.now() - 30 * 86400000).toISOString();
+  store['teacher_preimport_snapshot'] = JSON.stringify({ at: old, data: getData() });
+  if (getPreImportSnapshot()) throw new Error('过期快照未清理');
+  if (store['teacher_preimport_snapshot'] !== undefined) throw new Error('过期快照未从存储中删除');
+  return '30 天前的快照已清掉';
+});
+
+check('撤销快照不进备份文件（免得备份越滚越大）', () => {
+  snapshotBeforeImport();
+  const raw = JSON.stringify(buildBackup());
+  clearPreImportSnapshot();
+  if (raw.includes('teacher_preimport_snapshot')) throw new Error('快照被写进了备份文件');
+  return '备份文件不含撤销快照';
+});
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
 process.exit(failures === 0 ? 0 : 1);

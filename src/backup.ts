@@ -4,7 +4,7 @@
    这里提供一次性导出 JSON、以及导入恢复(覆盖 / 合并)两种模式。
    ============================================================ */
 
-import { getData, setData, markBackedUp, getCorruptBackup } from './storage';
+import { getData, setData, markBackedUp, getCorruptBackup, normalizeModuleOrder } from './storage';
 import type { AppData } from './types';
 
 const APP_TAG = 'teacher-assistant-backup';
@@ -197,8 +197,80 @@ export function mergeIntoCurrent(inc: AppData): AppData {
 }
 
 export function applyBackup(data: AppData, mode: 'replace' | 'merge') {
-  if (mode === 'merge') setData(mergeIntoCurrent(data));
-  else setData(data);
+  const incoming = normalizeIncoming(data);
+  if (mode === 'merge') setData(mergeIntoCurrent(incoming));
+  else setData(incoming);
+}
+
+/**
+ * 入库前先补齐模块顺序。
+ * 旧备份里的 `settings.moduleOrder` 记的是它那会儿的模块清单，
+ * 直接写进去会让后来新增的模块（古诗文背诵）在首页消失。
+ */
+function normalizeIncoming(data: AppData): AppData {
+  if (!data.settings) return data;
+  return {
+    ...data,
+    settings: { ...data.settings, moduleOrder: normalizeModuleOrder(data.settings.moduleOrder) },
+  };
+}
+
+/* ---------- 导入前的「撤销快照」 ----------
+   覆盖导入会把这台设备上的数据整体换掉，换错了就回不来。
+   所以在覆盖前先把当前数据留一份（独立 key，不进备份文件），
+   用户在设置页可以一键退回。合并模式不动现有数据，不需要快照。 */
+
+const PREIMPORT_KEY = 'teacher_preimport_snapshot';
+/** 快照保留天数：过期自动清掉，免得长期占着存储配额 */
+const SNAPSHOT_TTL_DAYS = 7;
+
+interface SnapshotRaw { at: string; data: AppData }
+
+/** 覆盖导入前留一份当前数据；返回是否留成功（配额不足或数据过大时会失败） */
+export function snapshotBeforeImport(): boolean {
+  try {
+    const payload: SnapshotRaw = { at: new Date().toISOString(), data: getData() };
+    localStorage.setItem(PREIMPORT_KEY, JSON.stringify(payload));
+    return true;
+  } catch {
+    // 快照失败不能阻断导入本身，但要如实告诉调用方
+    return false;
+  }
+}
+
+export interface PreImportSnapshot { at: string; summary: string }
+
+/** 取撤销快照的信息（不含数据本身）；过期或不存在返回 null */
+export function getPreImportSnapshot(): PreImportSnapshot | null {
+  try {
+    const raw = localStorage.getItem(PREIMPORT_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw) as SnapshotRaw;
+    if (!obj || !obj.data || !obj.at) return null;
+    const age = Date.now() - new Date(obj.at).getTime();
+    if (!(age >= 0) || age > SNAPSHOT_TTL_DAYS * 86400000) {
+      localStorage.removeItem(PREIMPORT_KEY);
+      return null;
+    }
+    return { at: obj.at, summary: summarize(obj.data) };
+  } catch { return null; }
+}
+
+/** 退回覆盖导入之前的数据；成功后快照即作废 */
+export function restorePreImport(): boolean {
+  try {
+    const raw = localStorage.getItem(PREIMPORT_KEY);
+    if (!raw) return false;
+    const obj = JSON.parse(raw) as SnapshotRaw;
+    if (!obj || !obj.data) return false;
+    setData(obj.data);
+    localStorage.removeItem(PREIMPORT_KEY);
+    return true;
+  } catch { return false; }
+}
+
+export function clearPreImportSnapshot() {
+  try { localStorage.removeItem(PREIMPORT_KEY); } catch { /* ignore */ }
 }
 
 /** 距离上次备份的天数;从没备份过返回 Infinity */

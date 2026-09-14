@@ -2279,6 +2279,37 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   color: var(--text-3);
 }
 
+/* ===== 撤回上次覆盖导入（导入前的快照） ===== */
+.bk-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 149, 0, 0.08);
+  border: 0.5px solid rgba(255, 149, 0, 0.32);
+}
+
+.bk-undo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.bk-undo-text b { color: #C77700; font-weight: 600; }
+
+.bk-undo-text em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--text-3);
+  word-break: break-all;
+}
+
 /* ===== 数据存放方式：三选一 ===== */
 .cloud-seg { margin-bottom: 12px; }
 .cloud-seg .rc-seg-item { padding: 9px 6px; line-height: 1.3; }
@@ -2333,6 +2364,8 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 @media (prefers-color-scheme: dark) {
   .bk-scope { background: rgba(52, 199, 89, 0.12); }
   .bk-scope-title { color: #34C759; }
+  .bk-undo { background: rgba(255, 149, 0, 0.14); }
+  .bk-undo-text b { color: #FFB340; }
   .cloud-found > div > b { color: #34C759; }
 }
 

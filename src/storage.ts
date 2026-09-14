@@ -79,6 +79,15 @@ export function getData(): AppData {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('数据结构异常');
     }
+    // 老数据里的模块顺序会缺后来新增的模块（升级前保存过设置、或导入过旧备份）。
+    // 在「读」这一层就地补齐 —— 这样任何使用方都不可能再拿到残缺的顺序，
+    // 也就不可能再出现「导入旧备份后新模块在首页消失」。
+    const savedOrder = parsed.settings?.moduleOrder;
+    if (parsed.settings && Array.isArray(savedOrder)) {
+      const full = normalizeModuleOrder(savedOrder);
+      const same = full.length === savedOrder.length && full.every((k, i) => k === savedOrder[i]);
+      if (!same) parsed.settings.moduleOrder = full;
+    }
     try { localStorage.removeItem(READONLY_KEY); } catch { /* ignore */ }
     sessionIssue = null;
     return parsed as AppData;
@@ -138,17 +147,29 @@ export const DEFAULT_MODULE_ORDER = ['leave', 'schedule', 'homework', 'recite', 
 export const DEFAULT_SALARY_CATEGORIES = ['工资', '绩效', '补贴', '奖金', '其他'];
 
 /**
- * 取首页模块顺序。
- * 关键:老用户 localStorage 里存的是旧顺序(没有新模块),
- * 这里会把新增模块自动补进去,否则升级后新模块在首页不显示。
+ * 把「某个时期保存下来的模块顺序」补齐成当前版本的完整顺序。
+ *
+ * 为什么必须有这一步：
+ * `settings.moduleOrder` 是在用户点「保存设置」时写进 localStorage 的，
+ * 它记的是**当时那个版本**的模块清单。之后新增的模块（如 v22 的古诗文背诵）
+ * 不在这个数组里 —— 一旦直接拿它渲染首页，新模块的卡片就会凭空消失。
+ * 这不是理论风险：导入一份旧备份（哪怕是「合并」模式）就会踩到，
+ * 因为旧备份带来的 `settings.moduleOrder` 会盖掉当前设备的顺序。
+ *
+ * 规则：过滤掉已经不存在的模块，再把缺失的模块按默认顺序补到末尾。
  */
-export function getModuleOrder(): string[] {
-  const d = getData();
-  const saved = d.settings?.moduleOrder;
+export function normalizeModuleOrder(saved?: string[] | null): string[] {
   if (!saved || saved.length === 0) return [...DEFAULT_MODULE_ORDER];
   const merged = saved.filter(k => DEFAULT_MODULE_ORDER.includes(k));
   for (const k of DEFAULT_MODULE_ORDER) if (!merged.includes(k)) merged.push(k);
   return merged;
+}
+
+/**
+ * 取首页模块顺序（读的时候就走 normalize，调用方拿到的一定是完整的）。
+ */
+export function getModuleOrder(): string[] {
+  return normalizeModuleOrder(getData().settings?.moduleOrder);
 }
 
 export function saveModuleOrder(order: string[]) {
