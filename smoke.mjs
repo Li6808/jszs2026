@@ -1584,8 +1584,12 @@ check('★ 工具条与导出按钮行收成一行（不再各占两排）', () 
   if (Number(fs[1]) > 12) throw new Error(`.view-tab 字号 ${fs[1]}px 偏大，窄屏三个按钮会换行占两行`);
   const ri = css.lastIndexOf('.rc-toolbar {');
   const rblock = css.slice(ri, css.indexOf('}', ri));
-  if (!rblock.includes('flex-wrap: wrap')) throw new Error('.rc-toolbar 丢了 flex-wrap 兜底，极窄屏会溢出');
-  return '导出按钮一行 · 视图按钮收小 · 工具栏保留换行兜底';
+  // v39：工具条从「换行」改成「不换行 + 可左右滑」（和 .rc-export-row 一个套路）——
+  // 一排小控件不许被拆成两排。两条路都行，但不能两头都不占，否则极窄屏真会溢出。
+  if (!rblock.includes('flex-wrap: nowrap') || !rblock.includes('overflow-x: auto')) {
+    throw new Error('.rc-toolbar 既没换行、也不能左右滑，窄屏会直接把控件挤出去');
+  }
+  return '导出按钮一行 · 视图按钮收小 · 工具栏不换行 + 可横滑';
 });
 /* ============================================================
    V34 · 误点「撤销」之后要能恢复
@@ -1828,6 +1832,95 @@ check('★ 留白收紧（v38）：卡片 / 标题 / 列表行上下都更紧凑
   const sess = (block('.hw-session-header {').match(/padding:\s*([\d.]+)px/) || [])[1];
   if (!sess || Number(sess) > 11) throw new Error('「收缴历史」行内边距没收紧');
   return '.card-body ' + bodyPad + 'px · .section-title ' + tm[1] + '/' + tm[2] + 'px · 班级卡片与收缴历史同步收紧';
+});
+
+/* ============================================================
+   V39 · 标题压成一行 / 表格铺满整屏 / 行高不再翻倍
+   用户原话：「像这种标题，上面有个图片、下面是标题，把标题和图片放在一行」
+             「上面有个图标，下面有个 115班背诵统计 这几个字，他们应该放在一行」
+             「每一页显示的表格还是太短了，把它显示在整个手机上会更好一点……
+               下面还有一块空白的地方，把它给全部显示完」
+             「尽量在更少空间显示更多的内容」
+   ============================================================ */
+console.log('\n[21] v39 标题一行 / 铺满整屏 / 行高');
+
+check('★ 图标与标题同一行（v39）：.header-icon 是 inline-flex，不再把标题挤到第二行', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const i = css.indexOf('.header-icon {');
+  if (i < 0) throw new Error('样式里没有 .header-icon');
+  const block = css.slice(i, css.indexOf('}', i));
+  if (!block.includes('display: inline-flex')) {
+    throw new Error('.header-icon 又变回块级了 —— 「<span><i class="header-icon"/>标题</span>」写法下标题会被顶到第二行，标题栏从 46px 涨到 89px');
+  }
+  if (!block.includes('vertical-align: middle')) throw new Error('.header-icon 缺 vertical-align，和文字对不齐');
+  const gap = css.includes('.card-header > span > .header-icon');
+  if (!gap) throw new Error('没有给「嵌在文字里的图标」留右边距的规则，图标会贴着标题');
+  const size = Number((block.match(/width:\s*(\d+)px/) || [])[1]);
+  if (!size || size > 32) throw new Error(`.header-icon 宽 ${size}px 偏大，标题栏还占地方`);
+  // 标题栏本身也要收着（原来 13px 上下 + 17px 字）
+  const h = css.indexOf('.card-header {');
+  const hb = css.slice(h, css.indexOf('}', h));
+  const pad = Number((hb.match(/padding:\s*(\d+)px/) || [])[1]);
+  if (!pad || pad > 11) throw new Error(`.card-header 上下留白 ${pad}px 偏大`);
+  return `.header-icon inline-flex ${size}px · 与标题同行 · 标题栏上下 ${pad}px`;
+});
+
+check('★ 详情页不再给底部导航留 110px（v39）：表格下面那块空白是它撑的', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const ai = css.indexOf('.app {');
+  if (ai < 0) throw new Error('样式里没有 .app');
+  const ab = css.slice(ai, css.indexOf('}', ai));
+  if (!ab.includes('110px')) {
+    throw new Error('.app 的 110px 底部留白不见了 —— 首页会被底部导航盖住');
+  }
+  const di = css.indexOf('.app.app-detail');
+  if (di < 0) throw new Error('没有 .app.app-detail 规则 —— 详情页又要白留 110px');
+  const db = css.slice(di, css.indexOf('}', di));
+  const n = Number((db.match(/padding-bottom:\s*calc\((\d+)px/) || [])[1]);
+  if (!n || n > 20) throw new Error(`详情页底部留白 ${n}px 还是太大`);
+  // 必须真的挂在「非首页」上
+  const app = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+  if (!/isHome\s*\?\s*'app'\s*:\s*'app app-detail'/.test(app)) {
+    throw new Error("App.tsx 里详情页没挂上 app-detail，样式白写");
+  }
+  if (!app.includes("className={isHome ? 'app' : 'app app-detail'}")) {
+    throw new Error('app-detail 的挂载条件不是 isHome，可能与底部导航的判断对不上');
+  }
+  return `首页留 110px（给底部导航）· 详情页只留 ${n}px`;
+});
+
+check('★ 表格里的字不许换行（v39）：换行会把行高顶成两倍', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const block = (sel) => {
+    const i = css.indexOf(sel);
+    if (i < 0) throw new Error('样式里找不到 ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  // 按钮：窄表格列里「删除」会被挤成「删/除」，按钮 30px → 55px、整行 85px
+  if (!block('.btn {').includes('white-space: nowrap')) {
+    throw new Error('.btn 没加 white-space: nowrap —— 表格列一窄，按钮文字就换行，行高直接翻倍');
+  }
+  // 标签：「基本工资」被拆两行会把行高顶到 72px
+  if (!block('.tag {').includes('white-space: nowrap')) {
+    throw new Error('.tag 没加 white-space: nowrap —— 标签换行会把行高顶到 70px 以上');
+  }
+  // 登记表单元格
+  if (!css.includes('.data-table th, .data-table td { white-space: nowrap; }')) {
+    throw new Error('登记表单元格没加 nowrap —— 窄屏下每行都会变成两行');
+  }
+  // 单元格留白同步收一档
+  const td = block('.data-table tbody td {');
+  const pad = Number((td.match(/padding:\s*(\d+)px 10px/) || [])[1]);
+  if (!pad || pad > 8) throw new Error(`.data-table 单元格上下留白 ${pad}px 偏大`);
+  return `按钮 / 标签 / 登记表单元格都不换行 · 单元格上下留白 ${pad}px`;
+});
+
+check('★ 详情页最后一卡不再留 12px 底边距（v39）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  if (!css.includes('.app-detail .page > .card:last-child')) {
+    throw new Error('详情页最后一卡的下边距没收掉 —— 表格下面还是凭空多 12px');
+  }
+  return '最后一卡 margin-bottom: 0';
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

@@ -122,6 +122,15 @@ body {
   overscroll-behavior-x: none;
 }
 
+/* v39：那 110px 是给首页底部导航（首页 / 课表 / 我的）让位的，
+   可是详情页（课表、背诵、作业收缴…）根本没有底部导航 ——
+   这 110px 就成了表格下方的一块纯空白，白占一屏的六分之一。
+   用户实测：「表格下面还有一块空白的地方，把它给全部显示完」。
+   详情页只留一点点安全距离（iOS 底部横条）。 */
+.app.app-detail { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+/* 详情页最后一卡的下边距同理 —— 表格下面什么都不接，留着就是空白 */
+.app-detail .page > .card:last-child { margin-bottom: 0; }
+
 .container { padding: 12px 16px; }
 .page { animation: pageIn 0.32s var(--ease); }
 @keyframes pageIn {
@@ -236,10 +245,10 @@ body {
 .card:active { transform: scale(0.995); }
 
 .card-header {
-  padding: 13px 16px;
-  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px;
+  display: flex; align-items: center; gap: 8px;
   border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.2px;
@@ -247,12 +256,21 @@ body {
 @media (prefers-color-scheme: dark) {
   .card-header { border-bottom-color: rgba(255, 255, 255, 0.08); }
 }
+/* ⚠️ v39：原来是 display:flex + 36px。在「<span><span class="header-icon"/>标题</span>」
+   这种写法里，flex 会把自己变成**块级**容器，把后面的标题硬挤到第二行 ——
+   标题栏因此从 46px 涨到 89px（用户实测：「上面有个图片，下面是标题，
+   把那个标题和图片放在一行」）。
+   改 inline-flex 就乖乖待在文字前面；直接当 card-header 子元素用时是 flex item，
+   行为完全不变。顺带从 36px 缩到 28px，标题栏再矮一档。 */
 .header-icon {
-  width: 36px; height: 36px; border-radius: var(--r-sm);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 19px;
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px;
   flex-shrink: 0;
+  vertical-align: middle;
 }
+/* 嵌在文字里的图标，跟后面的文字之间留一点缝（外面那层 flex 的 gap 管不到） */
+.card-header > span > .header-icon { margin-right: 6px; }
 .card-body { padding: 14px 16px; }
 .card-body.empty { text-align: center; padding: 52px 20px; }
 
@@ -355,7 +373,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .form-row { display: flex; gap: 10px; }
 .form-row .flex1 { flex: 1; }
 .form-row .form-group { flex: 1; }
-.hint { font-size: 12px; color: var(--text-3); margin-top: 6px; padding-left: 4px; }
+.hint { font-size: 11.5px; color: var(--text-3); margin-top: 4px; margin-bottom: 4px; padding-left: 4px; }
 
 /* =================== Buttons (iOS Pill Style) =================== */
 
@@ -373,6 +391,10 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   user-select: none;
   position: relative;
   letter-spacing: -0.1px;
+  /* ⚠️ v39：inline-flex 的按钮在窄表格列里会把文字挤成两行（「删除」→「删/除」），
+     按钮因此从 30px 涨到 55px、整行跟着涨到 85px。
+     按钮文字永远不该换行 —— 宁可把列撑宽、让表格左右滑。 */
+  white-space: nowrap;
 }
 .btn:active { transform: scale(0.96); transition: transform 0.1s; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -764,7 +786,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .section-title {
   font-size: 13px;
   font-weight: 700;
-  margin: 9px 0 5px;
+  margin: 6px 0 3px;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1037,9 +1059,14 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 /* border-collapse 必须是 separate：collapse 模式下 sticky 的表头单元格
    在吸附时边框会跟着表格一起被滚走（表头看起来缺一条线）。只有 border-bottom，改后外观不变。 */
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; margin-top: 10px; }
+/* ⚠️ v39：窄屏下表格列一挤，单元格里的文字就换行，行高随之翻倍
+   （实测工资表 85px/行、收缴表 60px/行 —— 一屏只能看八九行）。
+   登记表的短内容统一不换行，列宽不够就让 .tbl-scroll 左右滑
+   （它本来就有 overflow:auto + 吸顶表头）。 */
+.data-table th, .data-table td { white-space: nowrap; }
 .data-table thead th {
   background: var(--glass-soft);
-  padding: 10px;
+  padding: 8px 10px;
   text-align: left;
   font-weight: 700;
   border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
@@ -1047,7 +1074,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   color: var(--text-2);
 }
 .data-table tbody td {
-  padding: 10px;
+  padding: 6px 10px;
   border-bottom: 0.5px solid rgba(0, 0, 0, 0.04);
 }
 .data-table tbody tr:hover { background: var(--glass-soft); }
@@ -1059,6 +1086,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   border-radius: var(--r-full);
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;   /* v39：同上，「基本工资」被拆两行会把行高顶到 72px */
 }
 
 /* ============ 通用：表格滚动容器 + 表头固定（v33） ============
@@ -1720,8 +1748,8 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 }
 .rc-tabs::-webkit-scrollbar { display: none; }
 .rc-tab {
-  flex: 0 0 auto; padding: 6px 10px; border-radius: var(--r-sm);
-  font-size: 12px; font-weight: 600; color: var(--text-3);
+  flex: 0 0 auto; padding: 5px 9px; border-radius: var(--r-sm);
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
   cursor: pointer; white-space: nowrap; transition: all var(--t-fast);
 }
 .rc-tab.active { background: var(--glass-light); color: var(--primary); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
@@ -1820,7 +1848,9 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 /* ---- 工具条 ---- */
 /* v35：下拉 + 两个勾选尽量挤在一行（原来换行占两排，白吃掉表格一屏的行数）。
    真放不下时才换行（flex-wrap 兜底），窄屏也不会溢出。 */
-.rc-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+/* v39：原来 flex-wrap: wrap，窄屏被挤成两行（实测 56px）。
+   一排小控件不许被拆行（v35 立的规矩）→ nowrap + 可左右滑。 */
+.rc-toolbar { display: flex; gap: 7px; align-items: center; margin-bottom: 5px; flex-wrap: nowrap; overflow-x: auto; }
 .rc-select {
   flex: 1 1 120px; min-width: 96px; padding: 7px 10px !important; font-size: 12.5px !important;
   border-radius: var(--r-sm) !important; background: var(--glass-soft) !important;
@@ -1832,9 +1862,12 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .rc-check input { accent-color: var(--primary); }
 
 /* ---- 标记笔刷 ---- */
+/* v39：原来 wrap，撤销/恢复这组被挤到第二行 → 74px 高。
+   改成整条不换行，让**中间的色块组自己横滑**，撤销 / 恢复永远钉在右边看得见
+   （它是入口类按钮，绝不能被挤出可视区，v36 的教训）。 */
 .rc-brush-bar {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 6px 9px; background: var(--glass-soft);
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  padding: 5px 8px; background: var(--glass-soft);
   border-radius: var(--r-md); margin-bottom: 4px;
 }
 .rc-brush-label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
@@ -2705,6 +2738,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .rc-brush-group {
   display: flex; align-items: center; gap: 5px;
   flex-wrap: nowrap; min-width: 0;
+  flex: 1 1 auto; overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
 
 .rc-brush-chip {

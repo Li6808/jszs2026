@@ -385,7 +385,9 @@ function App() {
   const navActive = (p: string) => (page === p ? 'active' : '');
 
   return (
-    <div className="app">
+    /* v39：底部导航只在首页出现，详情页给它留的那 110px 就是白丢的 ——
+       用户实测「表格下面还有一块空白，把它全部显示完」。加个 app-detail 把留白收到 14px。 */
+    <div className={isHome ? 'app' : 'app app-detail'}>
       <header className="app-header">
         <div className="header-title"><span className="header-emoji">📱</span>教师个人助手</div>
       </header>
