@@ -652,17 +652,10 @@ function ClassSessionsView({ record, onClose, onChanged, toast, openQr }: {
           <div>👤 班主任:{record.classTeacher || '-'} {record.teacherPhone && `· 📞 ${record.teacherPhone}`}</div>
         </div>
 
+        {/* v38：按钮分层 —— 顶上只留「➕ 新建收缴会话」（最常用、最该一眼看到），
+            导出 / 预览 / 分享 / 二维码全部挪到整页最下面（和背诵模块一个做法）。 */}
         <div className="btn-row">
           <button className="btn btn-primary btn-small" onClick={() => setShowNew(s => !s)}>➕ 新建收缴会话</button>
-          {record.sessions.length > 0 && (
-            <>
-              <button className="btn btn-outline btn-small" onClick={exportCSV}>📊 导出CSV</button>
-              <button className="btn btn-outline btn-small" onClick={exportPDF}>📄 导出PDF</button>
-              <button className="btn btn-success btn-small" onClick={() => { drawCanvas(); setShowImage(true); }}>🖼️ 预览大图</button>
-              <button className="btn btn-primary btn-small" onClick={shareImage} title="分享收缴表">🔗 分享图片</button>
-              <button className="btn btn-outline btn-small" onClick={() => openQr?.(window.location.origin + window.location.pathname)} title="生成二维码,扫码分享 PWA">📱 二维码</button>
-            </>
-          )}
         </div>
 
         {showNew && (
@@ -807,6 +800,21 @@ function ClassSessionsView({ record, onClose, onChanged, toast, openQr }: {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* v38：导出 / 预览 / 分享 / 二维码挪到整页最下面（原来挤在页顶一排，
+            把「新建收缴会话」和收缴历史都往下压）。rc-export-row = 一行不换行、放不下左右滑。 */}
+        {record.sessions.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div className="section-title">📤 导出与分享</div>
+            <div className="rc-export-row" style={{ marginTop: 0 }}>
+              <button className="btn btn-outline btn-small" onClick={exportCSV}>📊 导出CSV</button>
+              <button className="btn btn-outline btn-small" onClick={exportPDF}>📄 导出PDF</button>
+              <button className="btn btn-success btn-small" onClick={() => { drawCanvas(); setShowImage(true); }}>🖼️ 预览大图</button>
+              <button className="btn btn-primary btn-small" onClick={shareImage} title="分享收缴表">🔗 分享图片</button>
+              <button className="btn btn-outline btn-small" onClick={() => openQr?.(window.location.origin + window.location.pathname)} title="生成二维码,扫码分享 PWA">📱 二维码</button>
             </div>
           </div>
         )}

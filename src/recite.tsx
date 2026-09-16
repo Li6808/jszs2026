@@ -1193,12 +1193,18 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
             </div>
           )}
 
-          {tab !== 'stats' && tab !== 'quiz' && (undoDepth > 0 || redoDepth > 0) && (
+          {/* v38：整页只留【一处】撤销入口 —— 进度矩阵用工具条里那一组（就挨着点格子的地方，
+              还常驻可见），这条只服务「篇目视角 / 学生档案 / 错字本」。
+              原来矩阵页上下各显示一组，用户反馈「有两个撤销，一个就行了」。
+              注意条件里不能再出现 undoDepth / redoDepth：入口必须常驻（v36 的教训）。 */}
+          {tab !== 'matrix' && tab !== 'stats' && tab !== 'quiz' && (
             <div className="rc-undo-bar">
               <span>
                 {redoDepth > 0
                   ? `↷ 刚撤销过 ${redoDepth} 步 —— 点「恢复」就能原样放回来，不会丢数据`
-                  : `💡 连点错了？可以逐步撤销（还可撤销 ${undoDepth} 步），撤销后也能恢复`}
+                  : undoDepth > 0
+                    ? `💡 点错了？可以逐步撤销（还可撤销 ${undoDepth} 步），撤销后也能恢复`
+                    : '💡 标错了可以「撤销」，撤销错了也能「恢复」，来回点不会丢数据'}
               </span>
               <span className="rc-undo-pair">
                 <button className="btn btn-small btn-outline" disabled={undoDepth === 0} onClick={undo}>
@@ -1473,7 +1479,10 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
         {/* 撤销 / 恢复成对出现：成对包在一个 nowrap 容器里，窄屏只会整组换行，不会把两个按钮拆散。
             ⚠️ v36：两个按钮**都常驻**，没得撤销/恢复时呈灰态（.is-off），不再按条件隐藏。
             原来「恢复」是有可恢复项才渲染 —— 老师没撤销过就找不到这个按钮，
-            真误点了撤销反而不知道去哪救（用户实测反馈：「我没有看见那个恢复按钮啊」）。 */}
+            真误点了撤销反而不知道去哪救（用户实测反馈：「我没有看见那个恢复按钮啊」）。
+            ⭐ v38：这一组是【进度矩阵里唯一】的撤销入口，页面上方那条撤销条在矩阵页不再渲染
+            （用户反馈「上面一个撤销、下面又一个撤销和恢复，有一个就行」）。删这组之前先看
+            ClassDetail 里 rc-undo-bar 的渲染条件，否则矩阵页就彻底没有撤销入口了。 */}
         <span className="rc-undo-pair">
           <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}
             title={undoDepth > 0 ? `撤销最近 ${undoDepth} 步操作` : '还没有可撤销的操作'}>

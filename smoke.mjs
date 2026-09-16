@@ -1734,33 +1734,100 @@ check('★ 工具条上的「↶ 撤销 / ↷ 恢复」：两个都常驻，没�
   return '两个都常驻 · 灰度可辨 · 带步数 · 同容器靠右';
 });
 
-check('★ 页面上方的撤销条：「撤销 / 恢复」两个按钮都常驻，文案讲清能救回来', () => {
-  // ① 刚标记过、还没撤销过：条子要出现，「↷ 恢复一步」也在（灰态）——
-  //    v36 的教训：入口一旦藏起来，老师就以为没这功能（用户就是照着截图找不到按钮的）
+check('★ 整页只留【一处】撤销入口（v38）：矩阵用工具条那组，其它视图用上方撤销条', () => {
+  // 用户原话：「这个撤销有两个撤销，上面有一个撤销，下面有一个撤销和恢复。
+  //            我觉得一个就行了，把它优化一下，只要一个。」
+  const D = (tab) => R(React.createElement(ClassDetail, { record: rec, onClose: noop, onChanged: noop, initialTab: tab, ...props }));
+
+  // ① 进度矩阵：只允许工具条里那一组，上方不能再出撤销条
   clearUndo(rec.id);
-  pushUndo(rec.id, {
-    at: '', label: '标记 1 格为「已背」',
-    changes: [{ studentId: 's1', poemId: 'p1', prev: null }],
-  });
-  const hMarked = R(React.createElement(ClassDetail, { record: rec, onClose: noop, onChanged: noop, ...props }));
-  clearUndo(rec.id);
-  if (!hMarked.includes('rc-undo-bar')) throw new Error('有可撤销的操作时撤销条没出来');
-  if (!/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(hMarked)) {
-    throw new Error('只标记过、还没撤销时，撤销条里的「↷ 恢复一步」被藏起来了 —— 入口必须常驻（灰态即可）');
+  const m0 = D('matrix');
+  if (m0.includes('rc-undo-bar')) {
+    throw new Error('进度矩阵页又渲染上方撤销条了 —— 上下各一组，用户看到的就是「两个撤销」');
+  }
+  if (!m0.includes('rc-undo-pair') || !m0.includes('↶ 撤销') || !m0.includes('↷ 恢复')) {
+    throw new Error('矩阵页连工具条那一组也没了 —— 那样一个撤销入口都不剩');
   }
 
-  // ② 撤销过之后：条子把「能恢复」讲明白，恢复按钮激活
+  // ② 矩阵以外的视图没有工具条那组，上方撤销条是唯一入口：
+  //    必须常驻，不能按「有没有可撤销项」来决定显示（v36 的教训）
+  for (const tab of ['poem', 'student', 'typo']) {
+    const h = D(tab);
+    if (!h.includes('rc-undo-bar')) throw new Error(tab + ' 视图一个撤销入口都没有了（上方那条是它唯一的入口）');
+    if (!/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(h)) {
+      throw new Error(tab + ' 视图的撤销条里，「↷ 恢复一步」在没得恢复时被藏起来了 —— 入口必须常驻（灰态即可）');
+    }
+  }
+
+  // ③ 撤销过之后：条子把「能恢复」讲明白，恢复按钮激活
   pushRedo(rec.id, {
     at: '', label: '全班 24 人 × 3 篇标为「已背」',
     changes: [{ studentId: 's1', poemId: 'p1', next: { status: 'recited' }, afterUndo: null }],
   });
-  const h = R(React.createElement(ClassDetail, { record: rec, onClose: noop, onChanged: noop, ...props }));
+  const h1 = D('poem');
+  if (!h1.includes('↷ 恢复一步')) throw new Error('撤销条里没有「↷ 恢复一步」按钮');
+  if (!h1.includes('不会丢数据')) throw new Error('撤销条没有把「可以恢复」讲清楚，老师不知道还能救回来');
+  if (/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(h1)) throw new Error('明明有可恢复项，按钮却还是灰的');
   clearUndo(rec.id);
-  if (!h.includes('rc-undo-bar')) throw new Error('撤销过之后撤销条没出来');
-  if (!h.includes('↷ 恢复一步')) throw new Error('撤销条里没有「↷ 恢复一步」按钮');
-  if (!h.includes('不会丢数据')) throw new Error('撤销条没有把「可以恢复」讲清楚，老师不知道还能救回来');
-  if (/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(h)) throw new Error('明明有可恢复项，按钮却还是灰的');
-  return '常驻双按钮（灰态可辨）+ 明确文案';
+  return '矩阵只留工具条那组 · 其它视图撤销条常驻 · 文案讲清能救回来';
+});
+
+/* ============================================================
+   V38 · 导出按钮分层 + 留白收紧
+   用户原话：「作业收缴上面只留一个新建收缴会话就行了，把导出、预览、分享、
+             二维码这些全部放在最下面，和背诵那样放在表格下面」
+             「每个功能里面的标题和下面内容之间的距离还是有点宽，压缩一下」
+   ============================================================ */
+console.log('\n[20] v38 导出按钮分层与留白');
+
+check('★ 作业收缴：顶上只留「新建收缴会话」，导出 / 分享挪到整页最下面', () => {
+  // ⚠️ 先去掉 JSX 注释再扫：新版注释里就写着「导出 / 预览 / 分享 / 二维码全部挪到最下面」，
+  //    不去掉的话锚点会先命中注释，断言直接假失败（这坑本文件已踩过一次）。
+  const src = readFileSync(new URL('./src/homework.tsx', import.meta.url), 'utf8')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+  const LABELS = ['导出CSV', '导出PDF', '预览大图', '分享图片', '二维码'];
+
+  const newBtn = src.indexOf('➕ 新建收缴会话');
+  const stat = src.indexOf('📈 累计统计');
+  const exp = src.indexOf('className="rc-export-row"');
+  if (newBtn < 0 || stat < 0 || exp < 0) {
+    throw new Error('homework.tsx 里找不到关键节点（新建按钮 / 累计统计 / rc-export-row）');
+  }
+  if (exp < stat) throw new Error('导出按钮行还在累计统计表【上面】—— 用户要求放到表格最下面');
+
+  // 页顶那一排（新建按钮往后 400 字）不许再出现导出类按钮
+  for (const label of LABELS) {
+    if (src.slice(newBtn, newBtn + 400).includes(label)) {
+      throw new Error('「' + label + '」还留在页顶的按钮排里，会把收缴历史往下压');
+    }
+  }
+  // 最下面那排必须五个都在，且用不换行可横滑的 rc-export-row
+  const row = src.slice(exp, src.indexOf('</div>', exp));
+  for (const label of LABELS) {
+    if (!row.includes(label)) throw new Error('最下面那排少了「' + label + '」');
+  }
+  return '页顶只留新建会话 · 5 个导出/分享按钮在表格下方 · 一行不换行';
+});
+
+check('★ 留白收紧（v38）：卡片 / 标题 / 列表行上下都更紧凑了', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const block = (sel) => {
+    const i = css.indexOf(sel);
+    if (i < 0) throw new Error('样式里找不到 ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  const bodyPad = Number((block('.card-body {').match(/padding:\s*(\d+)px/) || [])[1]);
+  if (!bodyPad || bodyPad > 15) throw new Error('.card-body 上下留白还是 ' + bodyPad + 'px，没收紧');
+  const tm = block('.section-title {').match(/margin:\s*(\d+)px 0 (\d+)px/);
+  if (!tm) throw new Error('.section-title 的 margin 写法变了，断言要跟着改');
+  if (Number(tm[1]) > 10 || Number(tm[2]) > 6) {
+    throw new Error('.section-title 上下留白 ' + tm[1] + '/' + tm[2] + 'px 偏大');
+  }
+  const hw = (block('.hw-class-card {').match(/padding:\s*([\d.]+)px/) || [])[1];
+  if (!hw || Number(hw) > 12) throw new Error('「班级收缴」卡片内边距没收紧');
+  const sess = (block('.hw-session-header {').match(/padding:\s*([\d.]+)px/) || [])[1];
+  if (!sess || Number(sess) > 11) throw new Error('「收缴历史」行内边距没收紧');
+  return '.card-body ' + bodyPad + 'px · .section-title ' + tm[1] + '/' + tm[2] + 'px · 班级卡片与收缴历史同步收紧';
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

@@ -183,7 +183,7 @@ body {
   border-radius: var(--r-lg);
   border: 0.5px solid var(--glass-line);
   box-shadow: var(--glass-shadow);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   overflow: hidden;
   transition: transform var(--t-base), box-shadow var(--t-base);
 }
@@ -236,7 +236,7 @@ body {
 .card:active { transform: scale(0.995); }
 
 .card-header {
-  padding: 16px 18px;
+  padding: 13px 16px;
   display: flex; align-items: center; gap: 12px;
   border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
   font-size: 17px;
@@ -253,7 +253,7 @@ body {
   font-size: 19px;
   flex-shrink: 0;
 }
-.card-body { padding: 18px; }
+.card-body { padding: 14px 16px; }
 .card-body.empty { text-align: center; padding: 52px 20px; }
 
 /* =================== Home Grid (iOS App Grid) =================== */
@@ -416,7 +416,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .btn-outline:hover { background: var(--primary); color: white; }
 
 .btn-small { padding: 7px 14px; font-size: 13px; border-radius: var(--r-sm); }
-.btn-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.btn-row { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
 
 /* =================== Leave Types (iOS Segmented) =================== */
 
@@ -498,12 +498,12 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   background: linear-gradient(135deg, rgba(255, 204, 0, 0.12) 0%, rgba(255, 149, 0, 0.1) 100%);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  padding: 14px 16px;
+  padding: 10px 13px;
   border-radius: var(--r-md);
-  margin: 14px 0;
+  margin: 10px 0;
   font-size: 13px;
   color: #B45309;
-  line-height: 1.7;
+  line-height: 1.55;
   border-left: 3px solid var(--ios-orange);
   font-weight: 500;
 }
@@ -764,7 +764,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .section-title {
   font-size: 13px;
   font-weight: 700;
-  margin: 14px 0 8px;
+  margin: 9px 0 5px;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1431,9 +1431,9 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 .hw-class-card {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px;
+  padding: 11px 12px;
   border-radius: var(--r-md);
-  margin-bottom: 10px;
+  margin-bottom: 7px;
   background: var(--glass-mid);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1459,7 +1459,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   font-weight: 600;
 }
 
-.hw-student-list { margin-top: 10px; }
+.hw-student-list { margin-top: 8px; }
 .hw-student-row {
   display: flex; gap: 5px; align-items: center;
   padding: 5px 6px;
@@ -1563,19 +1563,19 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: var(--r-md);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   border: 0.5px solid var(--glass-line);
   overflow: hidden;
 }
 .hw-session-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 14px;
+  padding: 10px 12px;
   cursor: pointer;
   transition: background 0.15s;
 }
 .hw-session-header:hover { background: var(--glass-soft); }
 .hw-session-body {
-  padding: 14px;
+  padding: 10px 12px;
   background: var(--glass-light);
   border-top: 0.5px solid rgba(0, 0, 0, 0.04);
 }
@@ -1693,8 +1693,8 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   background: var(--glass-soft);
   border: 0.5px solid var(--rc-line);
   border-radius: var(--r-md);
-  padding: 12px;
-  margin-bottom: 10px;
+  padding: 9px 11px;
+  margin-bottom: 7px;
 }
 .rc-class-info { flex: 1; min-width: 0; cursor: pointer; }
 .rc-class-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; }
@@ -1715,7 +1715,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 /* ---- 分页签 ---- */
 .rc-tabs {
-  display: flex; gap: 3px; overflow-x: auto; margin-bottom: 8px;
+  display: flex; gap: 3px; overflow-x: auto; margin-bottom: 6px;
   background: var(--glass-soft); padding: 3px; border-radius: var(--r-md);
 }
 .rc-tabs::-webkit-scrollbar { display: none; }
@@ -1728,7 +1728,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 .rc-panel {
   background: var(--glass-soft); border: 0.5px solid var(--rc-line);
-  border-radius: var(--r-md); padding: 12px; margin-bottom: 12px;
+  border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 9px;
 }
 .rc-row-item {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1820,7 +1820,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 /* ---- 工具条 ---- */
 /* v35：下拉 + 两个勾选尽量挤在一行（原来换行占两排，白吃掉表格一屏的行数）。
    真放不下时才换行（flex-wrap 兜底），窄屏也不会溢出。 */
-.rc-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.rc-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
 .rc-select {
   flex: 1 1 120px; min-width: 96px; padding: 7px 10px !important; font-size: 12.5px !important;
   border-radius: var(--r-sm) !important; background: var(--glass-soft) !important;
@@ -2069,7 +2069,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   flex-wrap: wrap; font-size: 11.5px; color: var(--text-3);
   background: rgba(0, 122, 255, 0.07); border: 0.5px solid rgba(0, 122, 255, 0.22);
-  border-radius: var(--r-md); padding: 6px 10px; margin-bottom: 8px;
+  border-radius: var(--r-md); padding: 5px 9px; margin-bottom: 6px;
 }
 /* 撤销 / 恢复成对：外层容器负责「靠右 + 整组不拆行」，两个按钮都在里面 */
 .rc-undo-pair {
@@ -2080,7 +2080,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 /* ---- 导出按钮行（v35：从表格下面「占两三行」压成一行） ----
    按钮缩小 + 不换行 + 放不下就横向滚（滚动条隐藏）。 */
 .rc-export-row {
-  display: flex; align-items: center; gap: 6px; margin-top: 12px;
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
   flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px;
   -webkit-overflow-scrolling: touch;
 }
@@ -2699,7 +2699,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
         ③ 极窄屏（≤360px）切成单字「未 / 背 / 默 / 补」，兜底保证一行。
    ============================================================ */
 
-.rc-brush-bar { gap: 6px; row-gap: 6px; padding: 6px 9px; }
+.rc-brush-bar { gap: 6px; row-gap: 5px; padding: 5px 8px; }
 .rc-brush-label { font-size: 11px; margin-right: 0; flex-shrink: 0; }
 
 .rc-brush-group {
@@ -2757,3 +2757,20 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px; color: var(--primary);
 }
+
+/* ============================================================
+   V38 · 标题与内容之间的留白再收一档
+   用户原话：「每个功能里面的那个标题和下面的内容之间的距离还是有点宽……
+             高一X班背诵统计这一块占用的空间就比较大，作业收缴、班级收缴也是，
+             上下距离压缩一下，看起来更合理」
+   做法：只调「卡片 / 标题 / 工具条 / 列表行」的 padding 与 margin，
+        不缩字号、不缩点击区域 —— 一屏能多露出一到两行记录。
+
+   ⚠️ 这一版是【就地改原规则】，没有在文件末尾追加同名覆盖（那两行不是新规则，
+      是本文件里对应那条的原值被别人改小了）：重复写同名选择器会让 smoke.mjs
+      的样式断言（按第一条 / 最后一条找）取到错的那条，v34 / v37 都栽过。
+      本次改动的类：.card / .card-header / .card-body / .section-title / .info-box /
+      .btn-row / .rc-tabs / .rc-toolbar / .rc-undo-bar / .rc-export-row / .rc-brush-bar /
+      .rc-class-card / .rc-panel / .hw-class-card / .hw-session-card /
+      .hw-session-header / .hw-session-body / .hw-student-list
+   ============================================================ */
