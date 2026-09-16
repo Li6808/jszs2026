@@ -1073,22 +1073,13 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 :root {
   /* 顶部「教师个人助手」标题栏的实际高度：上下 padding 22 + 26，标题行高约 36×1.1 */
   --app-header-h: calc(88px + env(safe-area-inset-top, 0px));
-  /* 表格下面还要留多少可视空间（各页不同，按需覆盖本变量）。
-     ⚠️ 只能给大、不能给小：给小了表头会被标题栏压住。 */
+  /* 表格下面还要留多少可视空间。
+     v37 起由 JS 按实际内容自动测量并写在容器行内样式的 --tbl-tail 上（见 App.tsx 的 useAutoTableTail），
+     这里的值只在 JS 还没跑起来时兜一下底。想手动调某页，照旧在这页覆盖本变量即可。 */
   --tbl-tail: 46px;
-  /* 表格高度上限 = 视口高 − 标题栏 − 下方留白（v35 起，原来写死 62vh，只有 8 行）。
-     →  表格几乎占满「标题栏以下」的整屏：一屏能看的行数最多；
-        而且往上滑时，表格上沿滑到标题栏下沿时页面正好到底，
-        表头就钉在那里不再上滑，往下翻的永远是表格里的内容。 */
-  --tbl-h: max(260px, calc(100vh - var(--app-header-h) - var(--tbl-tail)));
   --tbl-head-bg: #FFFFFF;
   --tbl-head-line: rgba(0, 0, 0, 0.10);
   --tbl-col-bg: #FFFFFF;
-}
-/* 手机浏览器地址栏会伸缩，只有 dvh 是「真正看得见的高度」
-   （老浏览器不认识 dvh → 上面的 vh 版本继续生效，不会失效） */
-@supports (height: 100dvh) {
-  :root { --tbl-h: max(260px, calc(100dvh - var(--app-header-h) - var(--tbl-tail))); }
 }
 /* 窄屏标题字号会降到 24px（见文件末尾 @media 400px），标题栏随之矮一截 */
 @media (max-width: 400px) {
@@ -1101,11 +1092,26 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
     --tbl-col-bg: #1C1C1E;
   }
 }
+/* ⚠️ --tbl-h 必须定义在 .tbl-scroll 自己身上，**不能放 :root**。
+   var() 是在「声明这个变量的元素」上就解析完的，所以 :root 里的 --tbl-h 永远用
+   :root 自己的 --tbl-tail。v37 的 JS 把量出来的 --tbl-tail 写在**容器行内样式**上，
+   如果 --tbl-h 还留在 :root，这个覆盖就石沉大海（实测：--tbl-tail 变成 161px 了，
+   max-height 还是 723px，表头照样被压住）。
+
+   表格高度上限 = 视口高 − 标题栏 − 下方留白（v35 起，原来写死 62vh，只有 8 行）。
+   → 表格几乎占满「标题栏以下」的整屏：一屏能看的行数最多；
+     而且往上滑时表格上沿正好停在标题栏下沿，表头钉在那里不再上滑。 */
 .tbl-scroll {
+  --tbl-h: max(260px, calc(100vh - var(--app-header-h) - var(--tbl-tail)));
   overflow: auto;
   max-height: var(--tbl-h);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+}
+/* 手机浏览器地址栏会伸缩，只有 dvh 是「真正看得见的高度」
+   （老浏览器不认识 dvh → 上面的 vh 版本继续生效，不会失效） */
+@supports (height: 100dvh) {
+  .tbl-scroll { --tbl-h: max(260px, calc(100dvh - var(--app-header-h) - var(--tbl-tail))); }
 }
 .tbl-scroll > table { margin-top: 0; }
 .tbl-scroll table > thead > tr > th {

@@ -1431,7 +1431,12 @@ check('★ 表头固定的样式前提：容器有高度上限 + 表头底色不
     if (i < 0) throw new Error('样式里找不到 ' + name);
     return css.slice(i, css.indexOf('}', i));
   };
-  const wrap = blockOf('.tbl-scroll {');
+  // ⚠️ 这里必须取「第一条」.tbl-scroll 规则：文件后面还有一个
+  //    `@supports (height: 100dvh) { .tbl-scroll { --tbl-h: … } }`，
+  //    lastIndexOf 会取到那一条，于是「缺少 overflow: auto」假失败。
+  const wrapIdx = css.indexOf('.tbl-scroll {');
+  if (wrapIdx < 0) throw new Error('样式里找不到 .tbl-scroll {');
+  const wrap = css.slice(wrapIdx, css.indexOf('}', wrapIdx));
   for (const want of ['overflow: auto', 'max-height: var(--tbl-h)']) {
     if (!wrap.includes(want)) throw new Error('.tbl-scroll 缺少 ' + want);
   }
@@ -1519,6 +1524,43 @@ check('★ 表格下方还有内容的页面，单独留出了空间（表头才
     }
   }
   return '课表留 60px+ / 矩阵留 80px+';
+});
+
+check('★ 表格下方留白改成按实际内容自动测量（v37）', () => {
+  const src = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+  if (!/function useAutoTableTail\s*\(/.test(src)) {
+    throw new Error('App.tsx 里没有 useAutoTableTail —— 又退回写死 --tbl-tail，必然有页面表头被标题栏压住');
+  }
+  if (!/useAutoTableTail\(page\)/.test(src)) {
+    throw new Error('useAutoTableTail 定义了却没接上（v27 getModuleOrder / v30 saveHiddenModules 就是这样翻车的）');
+  }
+  // 必须真的量「表格下沿 → 文档末尾」这段距离（等于下方内容总高），并写回 --tbl-tail
+  if (!/scrollHeight\s*-\s*\(r\.bottom\s*\+\s*window\.scrollY\)/.test(src)) {
+    throw new Error('没有按「表格下沿到文档末尾」测量下方留白');
+  }
+  if (!/setProperty\('--tbl-tail'/.test(src)) throw new Error('量完没有写回 --tbl-tail');
+  // 「只在与现值差 1px 以上才写」是必需的守卫，否则 ResizeObserver 会和自己互相触发
+  if (!/Math\.abs\(cur - tail\) > 1/.test(src)) {
+    throw new Error('缺少防抖守卫：ResizeObserver 会自我触发，页面可能卡死');
+  }
+  // ⚠️ 只监听换页面是不够的：页面内部的标签页 / 折叠 / 图表都会换 DOM，
+  //    那时表格高度变了却不重算（实测矩阵页少算 12px，表头又被压住）。
+  if (!/new MutationObserver\(run\)/.test(src) || !/childList: true, subtree: true/.test(src)) {
+    throw new Error('缺少 MutationObserver：切换标签页（如「进度矩阵」）后不会重新测量');
+  }
+  // JS 跑起来之前也要有合理兜底
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  if (!/--tbl-tail:\s*46px/.test(css)) throw new Error('全局兜底 --tbl-tail 丢了');
+  // ⚠️ --tbl-h 必须定义在 .tbl-scroll 自己身上。放 :root 的话，var(--tbl-tail) 在
+  //    :root 那层就解析完了，JS 写在容器行内样式上的 --tbl-tail 完全不生效
+  //    （实测：--tbl-tail 已经是 161px，max-height 仍然 723px，表头照样被压住）。
+  const tsIdx = css.indexOf('.tbl-scroll {');
+  if (tsIdx < 0) throw new Error('找不到 .tbl-scroll 规则');
+  const tsBlock = css.slice(tsIdx, css.indexOf('}', tsIdx));
+  if (!tsBlock.includes('--tbl-h:')) {
+    throw new Error('--tbl-h 没定义在 .tbl-scroll 上 —— 会被 :root 抢先解析，行内 --tbl-tail 无效');
+  }
+  return '自动测量 + 已接上 + 有防抖 + 公式在容器上 + 保留 CSS 兜底';
 });
 
 check('★ 工具条与导出按钮行收成一行（不再各占两排）', () => {

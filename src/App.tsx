@@ -30,6 +30,88 @@ import './App.css';
 
 type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework' | 'recite';
 
+/* ============================================================
+   让「表格铺满标题栏以下」真正对得准（v37）
+
+   表格高度 = 视口高 − 标题栏高 − 下方留白（--tbl-tail）。
+   问题：下方留白各页都不一样 —— 课表下面有一行提示、矩阵下面有一排导出按钮、
+   工资页下面有「添加/导入 + 导出Excel/导出PDF」两组按钮。写死一个数字，
+   必然是有的页面表头刚好、有的页面表头被标题栏压住（用户实测滑到底时表头不见了）。
+
+   所以不再靠猜：量出表格下面实际还剩多少内容，把它写进 --tbl-tail。
+   数学上这一步是收敛的 —— 容器变矮多少，文档总高就矮多少，
+   「表格下沿到文档末尾的距离」这个量不变，所以量一次就够，不会来回抖。
+   ============================================================ */
+function useAutoTableTail(dep: unknown) {
+  useEffect(() => {
+    let raf = 0;
+    const timers: number[] = [];
+    const observers: Array<{ disconnect(): void }> = [];
+
+    const apply = () => {
+      const root = document.documentElement;
+      const header = document.querySelector('.app-header');
+      const winH = window.innerHeight;
+
+      // 标题栏高度也实测，不再信 CSS 里那个估算值。
+      // CSS 写的 `--app-header-h` 是「padding + 字号 × 行高」推算的，窄屏字号一变就偏 ——
+      // 实测本机 390px 宽时 CSS 算的是 75px、真实渲染 88.6px，
+      // 差的这 13px 正好让表头被标题栏压掉一截。
+      const headerH = header ? header.getBoundingClientRect().height : 88;
+      const curHeader = parseFloat(getComputedStyle(root).getPropertyValue('--app-header-h'));
+      if (!Number.isFinite(curHeader) || Math.abs(curHeader - headerH) > 0.5) {
+        root.style.setProperty('--app-header-h', headerH.toFixed(1) + 'px');
+      }
+
+      // 表格最少留这么高，免得某页下方内容特别多时把表格压成一条缝
+      const minTable = Math.min(240, Math.max(160, winH - headerH - 40));
+      const maxTail = Math.max(0, winH - headerH - minTable);
+
+      document.querySelectorAll<HTMLElement>('.tbl-scroll').forEach(c => {
+        const r = c.getBoundingClientRect();
+        const below = root.scrollHeight - (r.bottom + window.scrollY);
+        const tail = Math.max(0, Math.min(Math.round(below) + 6, maxTail));
+        const cur = parseFloat(c.style.getPropertyValue('--tbl-tail'));
+        // 只在与当前值差 1px 以上时才写，避免和 ResizeObserver 互相触发形成死循环
+        if (!Number.isFinite(cur) || Math.abs(cur - tail) > 1) {
+          c.style.setProperty('--tbl-tail', tail + 'px');
+        }
+      });
+    };
+    const run = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(apply); };
+
+    run();
+    // 首屏图片/字体/图表落位后高度会再变一次，补几次测量
+    timers.push(window.setTimeout(run, 120), window.setTimeout(run, 480), window.setTimeout(run, 1200));
+    window.addEventListener('resize', run);
+    window.addEventListener('orientationchange', run);
+
+    // ⚠️ 只在换页面时量是不够的：页面内部的**标签页**（比如背诵页的「进度矩阵」）、
+    //    折叠展开、图表渲染都会换掉整块 DOM，那时表格高度已经变了却没重算 ——
+    //    实测矩阵页就是这么差了 12px，表头又被压住一点。
+    //    childList + subtree 只在 DOM 结构变化时触发；我们写的是行内 style（属性），
+    //    所以不会自我触发形成死循环。
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(run);
+      ro.observe(document.body);
+      ro.observe(document.documentElement);
+      observers.push(ro);
+    }
+    if (typeof MutationObserver !== 'undefined') {
+      const mo = new MutationObserver(run);
+      mo.observe(document.body, { childList: true, subtree: true });
+      observers.push(mo);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      timers.forEach(t => clearTimeout(t));
+      window.removeEventListener('resize', run);
+      window.removeEventListener('orientationchange', run);
+      observers.forEach(o => o.disconnect());
+    };
+  }, [dep]);
+}
+
 /* ===== Module Config ===== */
 const MODULE_CONFIG: Record<string, { icon: string; iconClass: string; name: string; desc: string }> = {
   leave: { icon: '📝', iconClass: 'red', name: '请假条', desc: '生成标准请假条' },
@@ -53,6 +135,9 @@ function App() {
   const [swipeProgress, setSwipeProgress] = useState(0);
   const [pageTransition, setPageTransition] = useState<'idle' | 'entering'>('idle');
   const [activeInput, setActiveInput] = useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  // 表格下方留白按实际内容自动测量（v37），换页面 / 转屏都会重算
+  useAutoTableTail(page);
 
   const refresh = useCallback(() => setLocalData(getData()), []);
 
