@@ -988,14 +988,15 @@ check('撤销快照不进备份文件（免得备份越滚越大）', () => {
 console.log('\n[14] 版本号 / 更新记录 / 分享备份 / 「标记为」选中态');
 
 check('版本号与更新记录自洽', () => {
-  // 别写死字面量：发版时只改 version.ts，测试不用跟着回来改
-  if (!/^V\d+$/.test(APP_VERSION)) throw new Error('版本号格式应为 V+数字，实际 ' + APP_VERSION);
+  // 别写死字面量：发版时只改 version.ts，测试不用跟着回来改。
+  // ⚠️ 允许「V41.1」这种小号（正式版停在 V41、号段让给探索版时，正式版就修 bug 用小数号）
+  if (!/^V\d+(\.\d+)?$/.test(APP_VERSION)) throw new Error('版本号格式应为 V+数字（可带 .小号），实际 ' + APP_VERSION);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(APP_BUILD)) throw new Error('发布日期格式不对：' + APP_BUILD);
   if (CHANGELOG.length === 0) throw new Error('更新记录为空');
   if (CHANGELOG[0].version !== APP_VERSION) throw new Error('更新记录第一条必须是当前版本');
   const seen = new Set();
   for (const r of CHANGELOG) {
-    if (!/^V\d+$/.test(r.version)) throw new Error('版本号格式不对：' + r.version);
+    if (!/^V\d+(\.\d+)?$/.test(r.version)) throw new Error('版本号格式不对：' + r.version);
     if (seen.has(r.version)) throw new Error('重复的版本号：' + r.version);
     seen.add(r.version);
     if (!r.items || r.items.length === 0) throw new Error(`${r.version} 没写更新内容`);
@@ -2102,6 +2103,44 @@ check('★ 顶部「教师个人助手」标题栏收小（v40 用户要求）',
       + 'emoji 反而成了决定标题栏行高的那个（这就是标题栏一直下不来的原因）');
   }
   return `上留白 ${pad[1]}px · emoji 用 1em 跟随标题字号`;
+});
+
+console.log('\n[24] v41.1 满宽按钮允许换行（「分享备份 / 复制备份内容」不再冲出框外）');
+
+check('★ 满宽按钮（.btn-block）必须允许换行，普通 .btn 仍不许换行', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const blockAt = (sel) => {
+    const i = css.indexOf('\n' + sel);
+    if (i < 0) throw new Error('样式里找不到 ' + sel);
+    return css.slice(i + 1, css.indexOf('}', i));
+  };
+  const btn = blockAt('.btn {');
+  if (!/white-space:\s*nowrap/.test(btn)) {
+    throw new Error('.btn 的 nowrap 被删了 —— 表格窄列里的「删除」会被挤成「删/除」，按钮从 30px 涨到 55px');
+  }
+  const blk = blockAt('.btn-block {');
+  if (!/white-space:\s*normal/.test(blk)) {
+    throw new Error('.btn-block 没写 white-space: normal —— 满宽按钮会继承 .btn 的 nowrap，'
+      + '文案一长（带括号补充说明的那种）就整行冲出按钮右边界（用户实测反馈「超出了那个框」）');
+  }
+  return '满宽可换行 · 窄列小按钮仍单行';
+});
+
+check('★ 那两个长文案按钮确实挂在 .btn-block 上', () => {
+  // 只扫源码里「标签 + 文案」的对应关系，不用管 JSX 里 onXxx={() => …} 的花括号
+  const src = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+  const long = ['📤 分享备份（手机上直接发到微信', '📋 复制备份内容（不方便存文件时'];
+  for (const label of long) {
+    const at = src.indexOf(label);
+    if (at < 0) throw new Error('找不到这段文案了（可能被改过）：' + label);
+    const open = src.lastIndexOf('<button', at);
+    if (open < 0) throw new Error('文案不在 <button> 里：' + label);
+    const tag = src.slice(open, at);
+    if (!tag.includes('btn-block')) {
+      throw new Error('这段长文案没挂在 .btn-block 上，会继承 nowrap 冲出框外：' + label);
+    }
+  }
+  return `${long.length} 个长文案按钮都在 .btn-block 上`;
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

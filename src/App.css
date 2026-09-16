@@ -406,7 +406,15 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 }
 .btn:active { transform: scale(0.96); transition: transform 0.1s; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-block { display: flex; width: 100%; }
+/* ⛔ v41.1（用户实测反馈）：满宽按钮必须允许换行。
+   上面 `.btn` 的 nowrap 是为「表格窄列里的小按钮」立的规矩，
+   但 `.btn-block` 是**整屏宽**的按钮，文案往往带括号补充说明
+   （「📤 分享备份（手机上直接发到微信 / 隔空投送）」、
+   「📋 复制备份内容（不方便存文件时，粘贴到备忘录即可）」），
+   继承 nowrap 就会**整行冲出按钮右边界**，看着像溢出。
+   满宽按钮不存在「被窄列挤压」的风险，所以这里放开换行、让它自然折成两行。
+   —— 两条规矩互不冲突：`.btn`（含 `.btn-row` 里那排小按钮）照旧 nowrap。 */
+.btn-block { display: flex; width: 100%; white-space: normal; }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
