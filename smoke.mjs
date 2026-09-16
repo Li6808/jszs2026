@@ -1551,7 +1551,7 @@ check('★ 工具条与导出按钮行收成一行（不再各占两排）', () 
               本来不想撤销的，但是被撤销了，恢复不了了。把这个做一个恢复。」
    ============================================================ */
 
-console.log('\n[18] 撤销之后可以恢复');
+console.log('\n[19] 撤销 / 恢复（v34 起 · v36 把入口做成常驻）');
 
 check('恢复栈：push / pop / 持久化 / 随班级一起清掉', () => {
   clearUndo('rec_redo');
@@ -1652,18 +1652,29 @@ check('★ 恢复之后还能再撤销（来回点不丢数据）', () => {
   return '未背 → 已背 → 未背，可无限来回';
 });
 
-check('★ 工具条上的「↷ 恢复」：只在真的撤销过之后才出现', () => {
+check('★ 工具条上的「↶ 撤销 / ↷ 恢复」：两个都常驻，没得用时才灰掉', () => {
   const list = students.map(st => ({ st, passed: 0, redo: 0, left: poems.length, total: poems.length, counted: true }));
   const base = {
     record: rec, poems, students: list, brush: 'todo', setBrush: noop,
     onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, redoDepth: 0, onRedo: noop, toast: noop,
   };
+  /* v36：用户实测反馈「我没有看见那个恢复按钮啊」——
+     根因是原来 `{redoDepth > 0 && <button/>}`，不先撤销一遍就永远不渲染。
+     现在无论有没有可恢复项，按钮都必须出现，只是灰一档。 */
   const h0 = R(React.createElement(MatrixView, { ...base, undoDepth: 0, redoDepth: 0 }));
-  if (h0.includes('rc-redo-inline')) throw new Error('没撤销过也把「恢复」摆出来了，白占地方');
+  if (!h0.includes('rc-redo-inline')) {
+    throw new Error('「恢复」按钮没常驻 —— 老师不先撤销一遍就看不到它（用户就是这么反馈的）');
+  }
+  if (!/class="[^"]*rc-redo-inline[^"]*is-off/.test(h0)) {
+    throw new Error('没得恢复时「恢复」按钮没有灰掉（is-off），看着像能点会让人白点一次');
+  }
+  if (!h0.includes('↷ 恢复')) throw new Error('恢复按钮缺文字标签');
 
-  const h1 = R(React.createElement(MatrixView, { ...base, undoDepth: 0, redoDepth: 1 }));
+  const h1 = R(React.createElement(MatrixView, { ...base, undoDepth: 2, redoDepth: 1 }));
   if (!h1.includes('rc-redo-inline')) throw new Error('撤销之后没有出现「恢复」按钮 —— 用户就回不去了');
-  if (!h1.includes('↷ 恢复')) throw new Error('恢复按钮缺文字标签');
+  if (/rc-redo-inline[^"]*is-off/.test(h1)) throw new Error('明明有可恢复项，按钮却还是灰的');
+  if (!h1.includes('↷ 恢复(1)')) throw new Error('恢复按钮没显示可恢复步数（就一个「恢复」看不出能救几步）');
+  if (!h1.includes('↶ 撤销(2)')) throw new Error('撤销按钮没显示可撤销步数');
   // 两个按钮必须在同一个容器里（窄屏只整组换行，不会拆散）
   if (!/<span class="rc-undo-pair">[\s\S]*?rc-undo-inline[\s\S]*?rc-redo-inline[\s\S]*?<\/span>/.test(h1)) {
     throw new Error('撤销 / 恢复没包在同一个 rc-undo-pair 容器里');
@@ -1675,11 +1686,28 @@ check('★ 工具条上的「↷ 恢复」：只在真的撤销过之后才出�
   if (!m) throw new Error('样式里找不到 .rc-undo-pair');
   if (!m[0].includes('inline-flex')) throw new Error('.rc-undo-pair 不是 inline-flex');
   if (!m[0].includes('margin-left: auto')) throw new Error('.rc-undo-pair 没有靠右，按钮会跑到状态组后面');
-  return '有可恢复项才出现 · 两个按钮同容器 · 整组靠右';
+  if (!/\.rc-redo-inline\.is-off\s*\{[^}]*opacity/.test(css)) {
+    throw new Error('.rc-redo-inline.is-off 没有淡一档的样式，灰态看不出来');
+  }
+  return '两个都常驻 · 灰度可辨 · 带步数 · 同容器靠右';
 });
 
-check('★ 页面上方的撤销条：撤销过之后明确告诉你能恢复', () => {
+check('★ 页面上方的撤销条：「撤销 / 恢复」两个按钮都常驻，文案讲清能救回来', () => {
+  // ① 刚标记过、还没撤销过：条子要出现，「↷ 恢复一步」也在（灰态）——
+  //    v36 的教训：入口一旦藏起来，老师就以为没这功能（用户就是照着截图找不到按钮的）
   clearUndo(rec.id);
+  pushUndo(rec.id, {
+    at: '', label: '标记 1 格为「已背」',
+    changes: [{ studentId: 's1', poemId: 'p1', prev: null }],
+  });
+  const hMarked = R(React.createElement(ClassDetail, { record: rec, onClose: noop, onChanged: noop, ...props }));
+  clearUndo(rec.id);
+  if (!hMarked.includes('rc-undo-bar')) throw new Error('有可撤销的操作时撤销条没出来');
+  if (!/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(hMarked)) {
+    throw new Error('只标记过、还没撤销时，撤销条里的「↷ 恢复一步」被藏起来了 —— 入口必须常驻（灰态即可）');
+  }
+
+  // ② 撤销过之后：条子把「能恢复」讲明白，恢复按钮激活
   pushRedo(rec.id, {
     at: '', label: '全班 24 人 × 3 篇标为「已背」',
     changes: [{ studentId: 's1', poemId: 'p1', next: { status: 'recited' }, afterUndo: null }],
@@ -1689,7 +1717,8 @@ check('★ 页面上方的撤销条：撤销过之后明确告诉你能恢复', 
   if (!h.includes('rc-undo-bar')) throw new Error('撤销过之后撤销条没出来');
   if (!h.includes('↷ 恢复一步')) throw new Error('撤销条里没有「↷ 恢复一步」按钮');
   if (!h.includes('不会丢数据')) throw new Error('撤销条没有把「可以恢复」讲清楚，老师不知道还能救回来');
-  return '出现撤销条 + 「↷ 恢复一步」+ 明确文案';
+  if (/<button[^>]*is-off[^>]*>↷ 恢复一步/.test(h)) throw new Error('明明有可恢复项，按钮却还是灰的');
+  return '常驻双按钮（灰态可辨）+ 明确文案';
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

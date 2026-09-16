@@ -911,7 +911,10 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
    */
   const redo = () => {
     const entry = popRedo(record.id);
-    if (!entry) { toast('没有可恢复的操作了'); return; }
+    if (!entry) {
+      toast('还没有可恢复的操作 —— 先点「↶ 撤销」，被撤掉的内容就能在这里「↷ 恢复」放回来');
+      return;
+    }
     const cur = fresh().marks;
     const { items, skipped } = planRedo(cur, entry);
     if (!items.length) {
@@ -1201,9 +1204,15 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
                 <button className="btn btn-small btn-outline" disabled={undoDepth === 0} onClick={undo}>
                   ↶ 撤销一步{undoDepth > 0 ? `(${undoDepth})` : ''}
                 </button>
-                {redoDepth > 0 && (
-                  <button className="btn btn-small btn-primary" onClick={redo}>↷ 恢复一步</button>
-                )}
+                {/* v36：与矩阵工具条一致，「恢复」常驻显示（没得恢复时灰掉），入口固定不飘 */}
+                <button
+                  className={`btn btn-small ${redoDepth > 0 ? 'btn-primary' : 'btn-outline is-off'}`}
+                  onClick={redo}
+                  title={redoDepth > 0
+                    ? `把撤销掉的 ${redoDepth} 步原样放回来`
+                    : '误点了「撤销」？被撤掉的内容会在这里放回来'}>
+                  ↷ 恢复一步{redoDepth > 0 ? `(${redoDepth})` : ''}
+                </button>
               </span>
             </div>
           )}
@@ -1462,14 +1471,22 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
           })}
         </span>
         {/* 撤销 / 恢复成对出现：成对包在一个 nowrap 容器里，窄屏只会整组换行，不会把两个按钮拆散。
-            「恢复」只在真的撤销过东西之后才出现，平时不占地方。 */}
+            ⚠️ v36：两个按钮**都常驻**，没得撤销/恢复时呈灰态（.is-off），不再按条件隐藏。
+            原来「恢复」是有可恢复项才渲染 —— 老师没撤销过就找不到这个按钮，
+            真误点了撤销反而不知道去哪救（用户实测反馈：「我没有看见那个恢复按钮啊」）。 */}
         <span className="rc-undo-pair">
-          <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}>
+          <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}
+            title={undoDepth > 0 ? `撤销最近 ${undoDepth} 步操作` : '还没有可撤销的操作'}>
             ↶ 撤销{undoDepth > 0 ? `(${undoDepth})` : ''}
           </button>
-          {redoDepth > 0 && (
-            <button className="btn btn-small btn-primary rc-redo-inline" onClick={onRedo}>↷ 恢复</button>
-          )}
+          <button
+            className={`btn btn-small rc-redo-inline ${redoDepth > 0 ? 'btn-primary' : 'btn-outline is-off'}`}
+            onClick={onRedo}
+            title={redoDepth > 0
+              ? `把撤销掉的 ${redoDepth} 步原样放回来`
+              : '误点了「撤销」？被撤掉的内容会在这里放回来'}>
+            ↷ 恢复{redoDepth > 0 ? `(${redoDepth})` : ''}
+          </button>
         </span>
       </div>
       {/* v35：这段说明原来占三行、把表格挤下去，压成两行 */}

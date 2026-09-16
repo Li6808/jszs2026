@@ -2086,6 +2086,9 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
    （也别在这里再写一条 .rc-undo-pair —— 测试是按「最后一条同名规则」读样式的） */
 .rc-undo-inline { flex-shrink: 0; }
 .rc-redo-inline { flex-shrink: 0; }
+/* v36：「恢复」常驻显示 —— 没得恢复时只淡一档，不再整颗藏起来。
+   藏起来 = 老师不知道有这个功能，真误点了撤销反而找不到救回来的入口。 */
+.rc-redo-inline.is-off { opacity: 0.55; }
 
 /* ---- 错字 ---- */
 .rc-cell.has-typo { position: relative; }
