@@ -26,6 +26,7 @@ import { makeQrDataUrl } from './qr';
 import { CloudPanel } from './cloudPanel';
 import { probeSameOrigin, bestShareUrl, setShareOrigin, getShareOrigin } from './cloud';
 import { APP_VERSION, APP_BUILD, CHANGELOG } from './version';
+import { checkForUpdate } from './updateCheck';
 import './App.css';
 
 type Page = 'home' | 'leave' | 'schedule' | 'settings' | 'salary' | 'duty' | 'substitute' | 'payment' | 'homework' | 'recite';
@@ -138,6 +139,22 @@ function App() {
 
   // 表格下方留白按实际内容自动测量（v37），换页面 / 转屏都会重算
   useAutoTableTail(page);
+
+  /**
+   * 自己发现新版本（v40）。
+   * 发布新版后浏览器可能把旧页面缓存住，看着就像「没更新成功」——
+   * 这里绕过缓存问一次服务器，发现入口 JS 变了就自动换过去。
+   * 手机上多半把页面一直开着，所以从后台切回来时也再问一次。
+   */
+  useEffect(() => {
+    const t = window.setTimeout(() => { void checkForUpdate(); }, 1500);
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkForUpdate(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   const refresh = useCallback(() => setLocalData(getData()), []);
 

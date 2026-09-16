@@ -22,6 +22,7 @@ import {
 } from './src/backup.ts';
 import { APP_VERSION, APP_BUILD, CHANGELOG } from './src/version.ts';
 import { makeQrDataUrl } from './src/qr.ts';
+import { checkForUpdate } from './src/updateCheck.ts';
 import { CloudPanel } from './src/cloudPanel.tsx';
 import {
   normalizeServerUrl, setCloudServer, getCloudServer, isCloudConfigured, isCloudLoggedIn,
@@ -1921,6 +1922,104 @@ check('★ 详情页最后一卡不再留 12px 底边距（v39）', () => {
     throw new Error('详情页最后一卡的下边距没收掉 —— 表格下面还是凭空多 12px');
   }
   return '最后一卡 margin-bottom: 0';
+});
+
+console.log('\n[22] v40 自动发现新版本（不再被浏览器缓存锁在旧版本上）');
+
+async function checkAsync(name, fn) {
+  try {
+    const info = await fn();
+    console.log(`  ok   ${name}${info ? ' — ' + info : ''}`);
+  } catch (e) {
+    failures++;
+    console.log(`  FAIL ${name}\n       ${e && e.message}`);
+  }
+}
+
+/** 在一个假浏览器里跑真实的 checkForUpdate（node 里把 document/location/fetch 打桩） */
+function fakeBrowser({ running, onServer }) {
+  const saved = {};
+  const keys = ['fetch', 'document', 'location', 'sessionStorage'];
+  for (const k of keys) saved[k] = Object.getOwnPropertyDescriptor(globalThis, k);
+  const define = (k, v) => Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+  const state = { replaced: null, fetchOpts: null };
+  define('location', { protocol: 'https:', pathname: '/jszs2026/', hash: '', replace(u) { state.replaced = u; } });
+  define('document', { scripts: [{ src: 'https://li6808.github.io/jszs2026/assets/' + running }] });
+  const session = new Map();
+  define('sessionStorage', {
+    getItem: k => (session.has(k) ? session.get(k) : null),
+    setItem: (k, v) => session.set(k, String(v)),
+  });
+  define('fetch', async (_u, opt) => {
+    state.fetchOpts = opt || null;
+    return { ok: true, text: async () => `<script type="module" crossorigin src="./assets/${onServer}"></script>` };
+  });
+  return {
+    state,
+    restore() {
+      for (const k of keys) {
+        if (saved[k]) Object.defineProperty(globalThis, k, saved[k]);
+        else delete globalThis[k];
+      }
+    },
+  };
+}
+
+await checkAsync('★ 服务器上已经是新版 → 自动换成新版（v40）', async () => {
+  const b = fakeBrowser({ running: 'index-OLD11111.js', onServer: 'index-NEW22222.js' });
+  try {
+    await checkForUpdate();
+    if (!b.state.replaced) {
+      throw new Error('服务器上已经是新版却没自动重载 —— 用户会一直卡在旧版本，只能自己清缓存');
+    }
+    if (!/^\/jszs2026\/\?u=\d+$/.test(b.state.replaced)) {
+      throw new Error('重载地址不对：' + b.state.replaced + '（必须保留子目录，并带 ?u= 时间戳换掉缓存键）');
+    }
+    if (!b.state.fetchOpts || b.state.fetchOpts.cache !== 'no-store') {
+      throw new Error("核对时没绕过缓存（cache: 'no-store'）—— 拿回来的还是缓存里的旧页面，等于白查");
+    }
+    const first = b.state.replaced;
+    b.state.replaced = null;
+    await checkForUpdate();
+    if (b.state.replaced) throw new Error('同一版本第二次又重载了 —— 万一刷完还是旧版会无限刷新');
+    return `检测到新版 → ${first} · 同一版本只刷一次`;
+  } finally { b.restore(); }
+});
+
+await checkAsync('★ 已经是最新 → 一动不动（v40）', async () => {
+  const b = fakeBrowser({ running: 'index-SAME9999.js', onServer: 'index-SAME9999.js' });
+  try {
+    await checkForUpdate();
+    if (b.state.replaced) throw new Error('已经是最新版却还在重载，会陷入刷新循环：' + b.state.replaced);
+    return '入口哈希一致，不刷新';
+  } finally { b.restore(); }
+});
+
+await checkAsync('★ 离线 / 请求失败 → 安静放过（v40）', async () => {
+  const b = fakeBrowser({ running: 'index-A111.js', onServer: 'index-B222.js' });
+  try {
+    Object.defineProperty(globalThis, 'fetch', {
+      value: async () => { throw new Error('network down'); }, configurable: true, writable: true,
+    });
+    await checkForUpdate();
+    if (b.state.replaced) throw new Error('网络都断了还去重载页面 —— 用户会直接看到白屏');
+    return '异常被吞掉，页面照常用';
+  } finally { b.restore(); }
+});
+
+check('★ 检查更新的接线（v40）：启动后查一次 + 从后台切回来再查一次', () => {
+  const src = readFileSync(new URL('./src/updateCheck.ts', import.meta.url), 'utf8');
+  if (!src.includes("if (location.protocol === 'file:') return;")) {
+    throw new Error('没有跳过 file:// —— 双击打开的本地产物会被反复刷新');
+  }
+  if (!src.includes('GUARD_PREFIX')) throw new Error('没有防重复重载的守卫，小心刷新循环');
+  const app = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+  if (!app.includes("from './updateCheck'")) throw new Error('App.tsx 没引入检查更新，代码白写');
+  if (!/checkForUpdate\(\)/.test(app)) throw new Error('App.tsx 没有调用 checkForUpdate —— 写了但没接上等于没写');
+  if (!app.includes('visibilitychange')) {
+    throw new Error('没有监听「从后台切回来」—— 手机一直开着页面就永远不查新版');
+  }
+  return '启动 1.5s 后查一次 + 每次切回前台再查一次';
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
