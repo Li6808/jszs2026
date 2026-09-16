@@ -1585,12 +1585,13 @@ check('★ 工具条与导出按钮行收成一行（不再各占两排）', () 
   if (Number(fs[1]) > 12) throw new Error(`.view-tab 字号 ${fs[1]}px 偏大，窄屏三个按钮会换行占两行`);
   const ri = css.lastIndexOf('.rc-toolbar {');
   const rblock = css.slice(ri, css.indexOf('}', ri));
-  // v39：工具条从「换行」改成「不换行 + 可左右滑」（和 .rc-export-row 一个套路）——
-  // 一排小控件不许被拆成两排。两条路都行，但不能两头都不占，否则极窄屏真会溢出。
-  if (!rblock.includes('flex-wrap: nowrap') || !rblock.includes('overflow-x: auto')) {
-    throw new Error('.rc-toolbar 既没换行、也不能左右滑，窄屏会直接把控件挤出去');
+  // ⛔ v39 用「不换行 + 可左右滑」硬撑一行 —— 实测「只看未过关学生」超出右边界
+  //    14px 被裁掉，老师以为这个筛选不存在（用户实测反馈）。
+  //    v40 起必须**允许换行**：横滑对老师来说等于「不见了」。
+  if (!rblock.includes('flex-wrap: wrap')) {
+    throw new Error('.rc-toolbar 必须允许换行 —— nowrap + 横滑会把「只看未过关学生」藏到屏幕外（v39 的教训）');
   }
-  return '导出按钮一行 · 视图按钮收小 · 工具栏不换行 + 可横滑';
+  return '导出按钮一行 · 视图按钮收小 · 工具栏允许换行（不再藏控件）';
 });
 /* ============================================================
    V34 · 误点「撤销」之后要能恢复
@@ -2020,6 +2021,87 @@ check('★ 检查更新的接线（v40）：启动后查一次 + 从后台切回
     throw new Error('没有监听「从后台切回来」—— 手机一直开着页面就永远不查新版');
   }
   return '启动 1.5s 后查一次 + 每次切回前台再查一次';
+});
+
+console.log('\n[23] v40「标记为」四个状态全可见 / 标签栏不藏 / 顶栏收小');
+
+check('★ 四个状态必须都看得见（v40）：色块组不许被压缩、不许自己横滑', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  // ⚠️ 同一个选择器在文件里可能有多条规则（v31 的收紧段也重写了一条 .rc-brush-bar，
+  //    里面没有 flex-wrap）—— 只取最后一条会漏掉真正生效的那条，必须全部收进来判断。
+  const rulesOf = (sel) => [...css.matchAll(new RegExp(sel + '\\s*\\{[^}]*\\}', 'g'))].map(m => m[0]);
+  const groups = rulesOf('\\.rc-brush-group');
+  if (!groups.length) throw new Error('样式里没有 .rc-brush-group');
+  if (groups.some(r => /overflow-x:\s*auto/.test(r))) {
+    throw new Error('.rc-brush-group 又变成可横滑了 —— 实测四个色块需要 223px、外层只给它 141.7px，'
+      + '后两个「已默写 / 待补背」会被推到滚动区外，老师以为一共只有两个状态');
+  }
+  if (!groups.some(r => /flex:\s*0\s+0\s+auto/.test(r))) {
+    throw new Error('.rc-brush-group 必须 flex: 0 0 auto（不被压缩）'
+      + '—— 写成 `flex: 1 1 auto` 它会为了给撤销按钮让位而把状态挤出去');
+  }
+  const bars = rulesOf('\\.rc-brush-bar');
+  if (!bars.some(r => /flex-wrap:\s*wrap/.test(r))) {
+    throw new Error('.rc-brush-bar 必须允许换行（v39 的 nowrap 会把状态和撤销按钮一起挤出可视区）');
+  }
+  if (bars.some(r => /flex-wrap:\s*nowrap/.test(r))) {
+    throw new Error('.rc-brush-bar 里还留着 flex-wrap: nowrap —— 四个状态会被压进一行然后被裁掉');
+  }
+  return '色块组不被压缩、不横滑 · 整条允许换行';
+});
+
+check('★ 撤销 / 恢复整组换到第二行靠右（v40 用户要求）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const m = css.match(/\.rc-brush-bar\s*>\s*\.rc-undo-pair\s*\{[^}]*\}/);
+  if (!m) throw new Error('没有 .rc-brush-bar > .rc-undo-pair 规则 —— 撤销/恢复还挤在状态那一行');
+  if (!/flex:\s*1\s+0\s+100%/.test(m[0])) {
+    throw new Error('撤销 / 恢复没有独占一行（要 flex-basis: 100%），四个状态仍会被它挤掉');
+  }
+  if (!m[0].includes('flex-end')) throw new Error('第二行的撤销 / 恢复没有靠右');
+  // 必须带 .rc-brush-bar > 前缀：页面上方那条撤销条里也有一个 .rc-undo-pair，不能跟着改
+  const common = css.match(/\.rc-undo-pair\s*\{[^}]*\}/);
+  if (common && /flex:\s*1\s+0\s+100%/.test(common[0])) {
+    throw new Error('把「独占一行」写进了通用的 .rc-undo-pair —— 会连页面上方那条撤销条一起改掉');
+  }
+  return 'flex: 1 0 100% + 靠右 · 只作用于矩阵页那一组';
+});
+
+check('★ 标签栏 6 个标签全部可见（v40）：不许再靠横滑藏起来', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const blockAt = (sel) => {
+    const i = css.lastIndexOf(sel);
+    if (i < 0) throw new Error('样式里找不到 ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  const tabs = blockAt('.rc-tabs {');
+  if (/overflow-x:\s*auto/.test(tabs)) {
+    throw new Error('.rc-tabs 又变成横滑了 —— 实测 6 个标签要 462px 而容器只有 324px，'
+      + '「✍️ 错字本 / 📝 默写卷 / 📈 统计」会被推到屏幕外（用户实测反馈「错字等等重新显示出来」）');
+  }
+  if (!tabs.includes('flex-wrap: wrap')) throw new Error('.rc-tabs 必须允许换行，6 个标签才都看得见');
+  const tab = blockAt('.rc-tab {');
+  if (!/flex:\s*1\s+1\s+calc\(33/.test(tab)) {
+    throw new Error('.rc-tab 没做成三列等宽（flex: 1 1 calc(33.333% - ?px)），换行后排不整齐');
+  }
+  return '换行 + 三列等宽（6 个标签两行全可见）';
+});
+
+check('★ 顶部「教师个人助手」标题栏收小（v40 用户要求）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const hdr = css.slice(css.indexOf('.app-header {'), css.indexOf('}', css.indexOf('.app-header {')));
+  const pad = hdr.match(/padding:\s*calc\((\d+)px \+ env\(safe-area-inset-top/);
+  if (!pad) throw new Error('.app-header 的 padding 不再考虑 iPhone 刘海安全区了（别把 env() 删掉）');
+  if (Number(pad[1]) > 14) {
+    throw new Error(`.app-header 上留白 ${pad[1]}px 偏大 —— 原来实测 88.6px 高，是页面上最吃高度的一块`);
+  }
+  const ei = css.indexOf('.header-title .header-emoji');
+  if (ei < 0) throw new Error('找不到 .header-emoji');
+  const emoji = css.slice(ei, css.indexOf('}', ei));
+  if (!/font-size:\s*1em/.test(emoji)) {
+    throw new Error('.header-emoji 又写死字号了 —— 原来固定 36px，而窄屏媒体查询只缩小了标题，'
+      + 'emoji 反而成了决定标题栏行高的那个（这就是标题栏一直下不来的原因）');
+  }
+  return `上留白 ${pad[1]}px · emoji 用 1em 跟随标题字号`;
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
