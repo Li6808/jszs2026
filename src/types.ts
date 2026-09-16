@@ -74,6 +74,12 @@ export interface DutyRecord {
   period?: string;
   classSubject?: string;
   amount?: number;
+  /** v41.2/v45：值班常常是「一整周」而不仅一天。endDate 为空 = 就一天 */
+  endDate?: string;
+  /** 值周领导姓名（教师自己填；填过一次以后表单会给下拉建议） */
+  leader?: string;
+  /** 值周成员，多人用「、」隔开 */
+  members?: string;
 }
 
 export interface AppData {

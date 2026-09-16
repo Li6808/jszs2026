@@ -56,10 +56,15 @@ export function exportSalaryCSV(records: Array<{ date: string; description: stri
   exportCSV('工资统计', headers, rows);
 }
 
+/** 值班日期：填了结束日期就显示成区间（界面与导出用同一套写法） */
+function dutyDateText(r: { date: string; endDate?: string }): string {
+  return r.endDate && r.endDate !== r.date ? `${r.date} ~ ${r.endDate}` : r.date;
+}
+
 // 导出值班统计为CSV
-export function exportDutyCSV(records: Array<{ date: string; description?: string; type: string }>) {
-  const headers = ['序号', '日期', '类型', '备注'];
-  const rows = records.map((r, i) => [String(i + 1), r.date, r.type, r.description || '-']);
+export function exportDutyCSV(records: Array<{ date: string; endDate?: string; description?: string; type: string; leader?: string; members?: string }>) {
+  const headers = ['序号', '日期', '值周领导', '值周成员', '类型', '备注'];
+  const rows = records.map((r, i) => [String(i + 1), dutyDateText(r), r.leader || '-', r.members || '-', r.type, r.description || '-']);
   exportCSV('值班统计', headers, rows);
 }
 
@@ -91,11 +96,11 @@ export function exportSalaryHTML(records: Array<{ date: string; description: str
 }
 
 // 值班统计打印HTML
-export function exportDutyHTML(records: Array<{ date: string; description?: string; type: string }>) {
-  let html = '<table><thead><tr><th>序号</th><th>日期</th><th>类型</th><th>备注</th></tr></thead><tbody>';
+export function exportDutyHTML(records: Array<{ date: string; endDate?: string; description?: string; type: string; leader?: string; members?: string }>) {
+  let html = '<table><thead><tr><th>序号</th><th>日期</th><th>值周领导</th><th>值周成员</th><th>类型</th><th>备注</th></tr></thead><tbody>';
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
-    html += `<tr><td>${i + 1}</td><td>${r.date}</td><td>${r.type}</td><td>${r.description || '-'}</td></tr>`;
+    html += `<tr><td>${i + 1}</td><td>${dutyDateText(r)}</td><td>${r.leader || '-'}</td><td>${r.members || '-'}</td><td>${r.type}</td><td>${r.description || '-'}</td></tr>`;
   }
   html += '</tbody></table>';
   html += '<div class="total">📅 共 ' + records.length + ' 条记录</div>';

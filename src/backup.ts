@@ -5,7 +5,7 @@
    ============================================================ */
 
 import { getData, setData, markBackedUp, getCorruptBackup, normalizeModuleOrder, normalizeHiddenModules } from './storage';
-import type { AppData } from './types';
+import type { AppData, ReciteRecord, ReciteMark, HomeworkRecord, HomeworkSession } from './types';
 
 const APP_TAG = 'teacher-assistant-backup';
 const FORMAT_VERSION = 1;
@@ -221,6 +221,118 @@ function mergeById<T extends { id: string }>(cur: T[] | undefined, inc: T[] | un
   return out;
 }
 
+/* ---------- 内容感知合并（v41.2 / v45 修；用户实测报障） ----------
+   用户原话：「V41 导出的数据导入到探索版，背诵管理里有一些人他背了，但探索版里有些没显示。」
+   根因：上面这个 mergeById 只按 id 判重 —— 两边各建过一次同一个班、或先前覆盖导入过一次时，
+   记录的 id / 班级名对得上，于是**整条被跳过**，备份里后来新增的背诵格子全都进不来。
+   所以对「带嵌套明细」的记录改成逐层取并集：
+     · 同 id                     → 合并内容
+     · 不同 id 但同年级 + 同班名 → 也合并成一条
+       （导入后出现两条同名班级，老师多半只会点开空的那条，看着就像「数据丢了」）
+   具体取哪一边的值见 pickNewerMark：先比状态高低，再比日期，完全一样时保留本机的。 */
+
+/** 状态高低：空格 < 待补背 < 已背 < 已默写。两边都没日期时靠它判断谁更「新」 */
+const MARK_RANK: Record<string, number> = { todo: 0, redo: 0, recited: 1, written: 2 };
+
+function markWeight(m?: ReciteMark | null): [number, string] {
+  if (!m) return [-1, ''];
+  return [MARK_RANK[m.status] ?? 0, m.checkedAt || m.writeDate || m.reciteDate || ''];
+}
+
+/** 同一格两边都有值时取更靠后的那个；完全一样时保留本机(a)的 */
+export function pickNewerMark(a?: ReciteMark | null, b?: ReciteMark | null): ReciteMark | undefined {
+  if (!a) return b || undefined;
+  if (!b) return a;
+  const [ra, ta] = markWeight(a);
+  const [rb, tb] = markWeight(b);
+  if (ra !== rb) return rb > ra ? b : a;
+  if (ta === tb) return a;
+  return tb > ta ? b : a;
+}
+
+function mergeMarks(a?: ReciteRecord['marks'], b?: ReciteRecord['marks']): ReciteRecord['marks'] {
+  const out: ReciteRecord['marks'] = {};
+  const sids = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  for (const sid of sids) {
+    const ra = (a || {})[sid] || {};
+    const rb = (b || {})[sid] || {};
+    const row: Record<string, ReciteMark> = {};
+    for (const pid of new Set([...Object.keys(ra), ...Object.keys(rb)])) {
+      const m = pickNewerMark(ra[pid], rb[pid]);
+      if (m) row[pid] = m;
+    }
+    if (Object.keys(row).length) out[sid] = row;
+  }
+  return out;
+}
+
+/** 两条背诵记录合成一条：学生 / 篇目取并集，逐格取更新的那个 */
+export function mergeReciteRecord(a: ReciteRecord, b: ReciteRecord): ReciteRecord {
+  return {
+    ...a,
+    poems: mergeById(a.poems, b.poems),
+    students: mergeById(a.students, b.students),
+    marks: mergeMarks(a.marks, b.marks),
+    updatedAt: (a.updatedAt || '') > (b.updatedAt || '') ? a.updatedAt : b.updatedAt,
+  };
+}
+
+export function mergeReciteRecords(cur?: ReciteRecord[], inc?: ReciteRecord[]): ReciteRecord[] {
+  const out = [...(cur || [])];
+  const pick = (r: ReciteRecord) => {
+    const sameId = out.findIndex(x => x.id === r.id);
+    if (sameId >= 0) return sameId;
+    return out.findIndex(x => x.classFullName === r.classFullName && (x.grade || '') === (r.grade || ''));
+  };
+  for (const r of inc || []) {
+    if (!r || !r.id) continue;
+    const at = pick(r);
+    const base = at >= 0 ? out[at] : undefined;
+    if (base) { out[at] = mergeReciteRecord(base, r); continue; }
+    out.push(r);
+  }
+  return out;
+}
+
+/** 作业收缴同理：同一个班的记录要合并「收缴会话」与名单，否则新收的那几次进不来 */
+function mergeHomeworkRecord(a: HomeworkRecord, b: HomeworkRecord): HomeworkRecord {
+  const sessions: HomeworkSession[] = [...(a.sessions || [])];
+  for (const s of b.sessions || []) {
+    if (!s || !s.id) continue;
+    const at = sessions.findIndex(x => x.id === s.id);
+    if (at < 0) { sessions.push(s); continue; }
+    const base = sessions[at];
+    sessions[at] = {
+      ...base, ...s,
+      // 同一次收缴：备份里补上本机没有的格子，本机已经标过的不动
+      submissions: { ...(s.submissions || {}), ...(base.submissions || {}) },
+    };
+  }
+  return {
+    ...a,
+    students: mergeById(a.students, b.students),
+    sessions,
+    updatedAt: (a.updatedAt || '') > (b.updatedAt || '') ? a.updatedAt : b.updatedAt,
+  };
+}
+
+export function mergeHomeworkRecords(cur?: HomeworkRecord[], inc?: HomeworkRecord[]): HomeworkRecord[] {
+  const out = [...(cur || [])];
+  const pick = (r: HomeworkRecord) => {
+    const sameId = out.findIndex(x => x.id === r.id);
+    if (sameId >= 0) return sameId;
+    return out.findIndex(x => x.classFullName === r.classFullName && (x.grade || '') === (r.grade || ''));
+  };
+  for (const r of inc || []) {
+    if (!r || !r.id) continue;
+    const at = pick(r);
+    const base = at >= 0 ? out[at] : undefined;
+    if (base) { out[at] = mergeHomeworkRecord(base, r); continue; }
+    out.push(r);
+  }
+  return out;
+}
+
 export function mergeIntoCurrent(inc: AppData): AppData {
   const cur = getData();
   return {
@@ -228,8 +340,8 @@ export function mergeIntoCurrent(inc: AppData): AppData {
     history: [...(cur.history || []), ...(inc.history || [])].slice(0, 100),
     salaries: mergeById(cur.salaries, inc.salaries),
     duties: mergeById(cur.duties, inc.duties),
-    homeworkRecords: mergeById(cur.homeworkRecords, inc.homeworkRecords),
-    reciteRecords: mergeById(cur.reciteRecords, inc.reciteRecords),
+    homeworkRecords: mergeHomeworkRecords(cur.homeworkRecords, inc.homeworkRecords),
+    reciteRecords: mergeReciteRecords(cur.reciteRecords, inc.reciteRecords),
     settings: cur.settings || inc.settings || null,
   };
 }

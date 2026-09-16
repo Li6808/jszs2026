@@ -17,10 +17,11 @@ import {
 } from './src/storage.ts';
 import {
   buildBackup, parseBackup, mergeIntoCurrent, summarize, describeScope,
+  pickNewerMark, mergeReciteRecords, mergeHomeworkRecords,
   applyBackup, snapshotBeforeImport, getPreImportSnapshot, restorePreImport, clearPreImportSnapshot,
   shareBackup, backupFileName,
 } from './src/backup.ts';
-import { APP_VERSION, APP_BUILD, CHANGELOG } from './src/version.ts';
+import { APP_VERSION, APP_BUILD, CHANGELOG, CHANGELOG_VISIBLE } from './src/version.ts';
 import { makeQrDataUrl } from './src/qr.ts';
 import { checkForUpdate } from './src/updateCheck.ts';
 import { CloudPanel } from './src/cloudPanel.tsx';
@@ -1013,7 +1014,7 @@ check('★ 个人设置里能看到版本号与更新内容', () => {
   if (!h.includes('版本与更新记录')) throw new Error('缺少区块标题');
   if (!h.includes(APP_BUILD)) throw new Error('没显示更新日期');
   if (!h.includes('当前版本')) throw new Error('没标出哪条是当前版本');
-  for (const r of CHANGELOG) if (!h.includes(r.version)) throw new Error('缺少 ' + r.version + ' 的记录');
+  for (const r of CHANGELOG.slice(0, 5)) if (!h.includes(r.version)) throw new Error('缺少 ' + r.version + ' 的记录');
   for (const it of CHANGELOG[0].items) if (!h.includes(it.slice(0, 8))) throw new Error('本版更新内容未渲染：' + it.slice(0, 12));
   // 默认（不传参数）应是折叠的，但标题上的版本号必须还在 —— 不然用户根本发现不了
   const closed = R(React.createElement(VersionSection, {}));
@@ -2141,6 +2142,159 @@ check('★ 那两个长文案按钮确实挂在 .btn-block 上', () => {
     }
   }
   return `${long.length} 个长文案按钮都在 .btn-block 上`;
+});
+
+
+/* ============================================================
+   V45 / V41.2 · 第 1 批
+   ① 电脑端返回按钮   ② 合并导入不再丢背诵/作业数据
+   ③ 作业收缴标题不被挤窄   ④ 工资 / 值班 / 代课可编辑
+   ⑤ 值班改成「一段时间」+ 值周领导成员   ⑥ 版本记录只留最近 5 条
+   ============================================================ */
+
+const _css = () => readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+const _app = () => readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+/** 取某条规则的第一个块（同名选择器在文件里可能出现多次，别用 lastIndexOf） */
+const _blk = (css, sel) => {
+  const i = css.indexOf(sel);
+  if (i < 0) throw new Error('样式里找不到 ' + sel);
+  return css.slice(i, css.indexOf('}', i));
+};
+
+check('★ 电脑端要有返回按钮（原来只有触摸左滑手势，鼠标根本回不去）', () => {
+  const src = _app();
+  if (!/className="header-back"/.test(src)) throw new Error('表头里没有返回按钮');
+  if (!/\{!isHome && \(/.test(src)) throw new Error('返回按钮不是「只在非首页显示」——首页会多一个点不动的按钮');
+  if (!/onClick=\{goBack\}/.test(src)) throw new Error('返回按钮没有接上 goBack()');
+  const hd = _blk(_css(), '.app-header {');
+  if (!/display:\s*flex/.test(hd)) {
+    throw new Error('.app-header 没改成 flex —— 返回按钮会另起一行把标题栏顶高'
+      + '（用户好不容易才让标题栏变矮，别又加回去）');
+  }
+  const bk = _blk(_css(), '.header-back {');
+  if (!/flex-shrink:\s*0/.test(bk)) throw new Error('.header-back 少了 flex-shrink:0，窄屏会被压扁');
+  return '非首页显示 · 与标题同一行 · 标题栏高度不变';
+});
+
+check('★ 合并导入要找得回背诵数据：同 id 或同班的记录必须合并内容，不能整条跳过', () => {
+  const poem = { id: 'p1', title: '《春》', author: '朱自清', type: '文', req: 'both', volume: '七上', order: 1, active: true };
+  const stu = [
+    { id: 's1', no: 1, name: '张三', gender: '男', className: '1班' },
+    { id: 's2', no: 2, name: '李四', gender: '女', className: '1班' },
+  ];
+  // 本机这一份：只有张三背了
+  const local = {
+    id: 'rec_local', classFullName: '初二(1)班', classShortName: '1班', grade: '初二',
+    poems: [poem], students: stu,
+    marks: { s1: { p1: { status: 'recited', reciteDate: '2026-09-01' } } },
+    createdAt: '', updatedAt: '',
+  };
+  // 备份那一份：换个 id（模拟「两边各建过一次同一个班」），而且李四也背了、张三还默写了
+  const incoming = {
+    ...local, id: 'rec_from_v41',
+    marks: {
+      s1: { p1: { status: 'written', reciteDate: '2026-09-01', writeDate: '2026-09-05' } },
+      s2: { p1: { status: 'recited', reciteDate: '2026-09-06' } },
+    },
+  };
+  const out = mergeReciteRecords([local], [incoming]);
+  if (out.length !== 1) {
+    throw new Error('同年级同班名被合成 ' + out.length + ' 条记录 —— 老师只会点开空的那一条，'
+      + '看着就像「有些人背了但不显示」');
+  }
+  const r = out[0];
+  if (!r.marks.s2 || !r.marks.s2.p1) {
+    throw new Error('李四的背诵记录没合并进来（这正是用户报的「有些人他背了，探索版里有些没显示」）');
+  }
+  if (r.marks.s1.p1.status !== 'written') throw new Error('张三的默写被旧值盖回去了：' + r.marks.s1.p1.status);
+  return '同班两条合成 1 条 · 2 个学生的记录都在（已默写不倒退）';
+});
+
+check('★ 合并时「哪边更新」的判定：先比状态高低，再比日期，单边有值取那边', () => {
+  const older = { status: 'recited', reciteDate: '2026-09-01' };
+  const newer = { status: 'written', reciteDate: '2026-09-01', writeDate: '2026-09-05' };
+  if (pickNewerMark(older, newer) !== newer) throw new Error('状态更高的没被采纳');
+  if (pickNewerMark(newer, older) !== newer) throw new Error('已经被新值覆盖的又被改回旧值');
+  const a = { status: 'recited', reciteDate: '2026-09-08' };
+  const b = { status: 'recited', reciteDate: '2026-09-02' };
+  if (pickNewerMark(a, b) !== a) throw new Error('状态相同应取日期更晚的');
+  if (pickNewerMark(undefined, b) !== b) throw new Error('本机没有、备份有 → 必须补上');
+  if (pickNewerMark(a, undefined) !== a) throw new Error('本机有、备份没有 → 保留本机');
+  return '状态优先 · 日期其次 · 单边有值取那一边';
+});
+
+check('★ 作业收缴同理：同一个班新收的几次会话要能合进来', () => {
+  const mk = (id, dates) => ({
+    id, classFullName: '高一5班', classShortName: '5班', grade: '高一', classTeacher: '张××',
+    teacherPhone: '', homeworksPerWeek: 2,
+    students: [{ id: 'st1', no: 1, name: '张三', gender: '男', className: '5班' }],
+    sessions: dates.map(d => ({ id: 'hs_' + d, date: d, title: d + ' 的作业', submissions: { st1: 'submitted' } })),
+    createdAt: '', updatedAt: '',
+  });
+  const out = mergeHomeworkRecords([mk('h_local', ['2026-09-01'])], [mk('h_v41', ['2026-09-01', '2026-09-03', '2026-09-05'])]);
+  if (out.length !== 1) throw new Error('同一个班被合成 ' + out.length + ' 条记录');
+  if (out[0].sessions.length !== 3) throw new Error('新收的会话没合进来，只有 ' + out[0].sessions.length + ' 次');
+  return '同班合成 1 条 · 收缴会话 1 → 3 次';
+});
+
+check('★ 作业收缴的「日期 · 作业名」不许被右边那排状态标签挤窄', () => {
+  const blk = _blk(_css(), '.hw-session-header {');
+  if (!/flex-wrap:\s*wrap/.test(blk)) {
+    throw new Error('.hw-session-header 没允许换行 —— 右边状态标签一多就把「日期 · 作业名」压窄，'
+      + '用户实测「字都没显示，或者换行了」');
+  }
+  const tail = _css().match(/\.hw-session-header > div:last-child \{[^}]*\}/);
+  if (!tail) throw new Error('少了「右侧状态组不压缩」这条，换行也治不住');
+  return '挤不下时状态整组掉第二行 · 标题占满整行';
+});
+
+check('★ 工资 / 值班 / 代课三个统计页都要能「编辑」（用户：只有删除）', () => {
+  const src = _app();
+  const n = (src.match(/>编辑<\/button>/g) || []).length;
+  if (n < 3) throw new Error('只找到 ' + n + ' 个编辑按钮，三个统计页都要有');
+  if ((src.match(/const startEdit = \(r: /g) || []).length < 3) {
+    throw new Error('startEdit 不足 3 个 —— 有页面只加了按钮没填回表单');
+  }
+  if (!/className="tbl-ops"/.test(src)) throw new Error('编辑/删除没放进 .tbl-ops，两个按钮会挤在一起');
+  const blk = _blk(_css(), '.tbl-ops {');
+  if (!/inline-flex/.test(blk)) throw new Error('.tbl-ops 没写成 inline-flex');
+  if ((src.match(/>{editId \? '保存修改' : '保存'}<\/button>/g) || []).length < 3) {
+    throw new Error('保存按钮没跟着变成「保存修改」——用户分不清是在新增还是在改');
+  }
+  return '3 个页面都有编辑 · 按钮成对排版 · 保存时提示「保存修改」';
+});
+
+check('★ 值班统计要支持「一段时间」+ 值周领导/成员（用户：原来只能填一天）', () => {
+  const src = _app();
+  const i = src.indexOf('function DutyOnlyPage(');
+  const j = src.indexOf('/* ============ 代课统计（独立）', i);
+  if (i < 0 || j < i) throw new Error('找不到 DutyOnlyPage');
+  const seg = src.slice(i, j);
+  for (const [kw, why] of [
+    ['endDate', '没有结束日期，还是只能记一天'],
+    ['spanDays', '没有按区间算天数'],
+    ['leader', '没有「值周领导」'],
+    ['members', '没有「值周成员」'],
+    ['datalist', '领导/成员没有下拉建议'],
+    ['dateText', '表里还只显示单日'],
+  ]) {
+    if (!seg.includes(kw)) throw new Error('值班页缺 ' + kw + '：' + why);
+  }
+  return '起止日期 + 值周领导 + 值周成员（可自填、有记忆）+ 合计天数';
+});
+
+check('★ 版本与更新记录只列最近 5 条（用户：版本号存太多，占上面空间）', () => {
+  if (CHANGELOG_VISIBLE !== 5) throw new Error('CHANGELOG_VISIBLE 应为 5，实际 ' + CHANGELOG_VISIBLE);
+  const h = R(React.createElement(VersionSection, { defaultOpen: true }));
+  for (const r of CHANGELOG.slice(0, CHANGELOG_VISIBLE)) {
+    if (!h.includes(r.version)) throw new Error('最近的 ' + r.version + ' 反而没显示');
+  }
+  if (CHANGELOG.length > CHANGELOG_VISIBLE) {
+    const hidden = CHANGELOG[CHANGELOG_VISIBLE];
+    if (h.includes(hidden.version)) throw new Error('第 6 个版本 ' + hidden.version + ' 还显示着，没截住');
+    if (!/只列最近/.test(h)) throw new Error('截断了但没告诉用户「更早的收起来了」');
+  }
+  return `展示 ${Math.min(CHANGELOG_VISIBLE, CHANGELOG.length)} / 共 ${CHANGELOG.length} 个版本`;
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

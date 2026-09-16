@@ -25,7 +25,7 @@ import {
 import { makeQrDataUrl } from './qr';
 import { CloudPanel } from './cloudPanel';
 import { probeSameOrigin, bestShareUrl, setShareOrigin, getShareOrigin } from './cloud';
-import { APP_VERSION, APP_BUILD, CHANGELOG } from './version';
+import { APP_VERSION, APP_BUILD, CHANGELOG, CHANGELOG_VISIBLE } from './version';
 import { checkForUpdate } from './updateCheck';
 import './App.css';
 
@@ -406,6 +406,13 @@ function App() {
        用户实测「表格下面还有一块空白，把它全部显示完」。加个 app-detail 把留白收到 14px。 */
     <div className={isHome ? 'app' : 'app app-detail'}>
       <header className="app-header">
+        {/* v41.2 / v45：手机上能从屏幕左边缘右滑返回，但那是触摸事件 ——
+           电脑上用鼠标根本没有这一步，不给按钮就真的回不去。 */}
+        {!isHome && (
+          <button type="button" className="header-back" onClick={goBack} aria-label="返回上一页">
+            <span className="header-back-arrow">‹</span>返回
+          </button>
+        )}
         <div className="header-title"><span className="header-emoji">📱</span>教师个人助手</div>
       </header>
 
@@ -1045,7 +1052,7 @@ export function VersionSection({ defaultOpen = false }: { defaultOpen?: boolean 
               <div className="hint">和别人对一下这个号，就知道两台设备用的是不是同一版。</div>
             </div>
           </div>
-          {CHANGELOG.map((r, i) => (
+          {CHANGELOG.slice(0, CHANGELOG_VISIBLE).map((r, i) => (
             <div key={r.version} className={`ver-rel ${i === 0 ? 'cur' : ''}`}>
               <div className="ver-rel-head">
                 <b>{r.version}</b>
@@ -1057,6 +1064,11 @@ export function VersionSection({ defaultOpen = false }: { defaultOpen?: boolean 
               </ul>
             </div>
           ))}
+          {CHANGELOG.length > CHANGELOG_VISIBLE && (
+            <div className="ver-more">
+              这里只列最近 {CHANGELOG_VISIBLE} 个版本（一共 {CHANGELOG.length} 个），更早的收起来了。
+            </div>
+          )}
           <div className="ver-tip">
             <b>🎨 想换掉这个图标？</b>
             交付包（电脑上那个文件夹）里有个「图标」文件夹，把你的图存成 <code>我的图标.png</code>
@@ -1551,7 +1563,22 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
     toast('已删除');
   };
 
-  const save = () => { if (!date || !amount) { toast('请填写完整'); return; } saveSalary({ id: editId || 'sal_' + Date.now(), date, description, category: category || '其他', amount: parseFloat(amount) }); refresh(); setShowForm(false); setEditId(''); setDate(''); setDescription(''); setCategory(''); setAmount(''); toast('✅ 已保存'); };
+  const resetForm = () => { setEditId(''); setDate(''); setDescription(''); setCategory(''); setAmount(''); };
+
+  /** 用户：「记录了之后就只有删除了，没有编辑」—— 点编辑把这条填回表单 */
+  const startEdit = (r: SalaryRecord) => {
+    setEditId(r.id); setDate(r.date); setDescription(r.description || '');
+    setCategory(r.category || ''); setAmount(String(r.amount));
+    setShowImport(false); setShowForm(true);
+  };
+
+  const save = () => {
+    if (!date || !amount) { toast('请填写完整'); return; }
+    const editing = !!editId;
+    saveSalary({ id: editId || 'sal_' + Date.now(), date, description, category: category || '其他', amount: parseFloat(amount) });
+    refresh(); setShowForm(false); resetForm();
+    toast(editing ? '✅ 已更新' : '✅ 已保存');
+  };
   const doImport = () => { const newRecords = importSalariesFromText(importText); if (newRecords.length === 0) { toast('未识别到有效数据'); return; } const d = getData(); d.salaries = [...newRecords, ...d.salaries]; setData(d); refresh(); setShowImport(false); setImportText(''); toast(`✅ 导入 ${newRecords.length} 条`); };
 
   const totalIncome = records.reduce((s, r) => s + r.amount, 0);
@@ -1612,7 +1639,7 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
           )}
 
           <div className="btn-row">
-            <button className="btn btn-primary" onClick={() => setShowForm(true)}>➕ 添加</button>
+            <button className="btn btn-primary" onClick={() => { resetForm(); setShowForm(true); }}>➕ 添加</button>
             <button className="btn btn-secondary" onClick={() => setShowImport(true)}>📥 导入</button>
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportSalaryCSV(records)}>📊 导出Excel</button>}
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportSalaryHTML(records)}>📄 导出PDF</button>}
@@ -1672,7 +1699,7 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
                 </div>
               </div>
               <div className="form-group"><label>金额（元）</label><input type="number" className="form-input" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></div>
-              <div className="btn-row"><button className="btn btn-primary" onClick={save}>保存</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>取消</button></div>
+              <div className="btn-row"><button className="btn btn-primary" onClick={save}>{editId ? '保存修改' : '保存'}</button><button className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>取消</button></div>
             </div>
           )}
 
@@ -1690,7 +1717,7 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
                       <td>{r.description || '-'}</td>
                       <td><span className="tag">{r.category}</span></td>
                       <td style={{ color: '#07c160', fontWeight: 600 }}>+¥{r.amount.toFixed(2)}</td>
-                      <td><button className="btn btn-small btn-secondary" onClick={() => { deleteSalary(r.id); refresh(); toast('已删除'); }}>删除</button></td>
+                      <td><span className="tbl-ops"><button className="btn btn-small btn-secondary" onClick={() => startEdit(r)}>编辑</button><button className="btn btn-small btn-danger" onClick={() => { deleteSalary(r.id); refresh(); toast('已删除'); }}>删除</button></span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1709,13 +1736,55 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
 function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
   const [records, setRecords] = useState<DutyRecord[]>(() => getData().duties.filter((d: DutyRecord) => d.type === '值班'));
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState('');
   const [date, setDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [leader, setLeader] = useState('');
+  const [members, setMembers] = useState('');
   const [description, setDescription] = useState('');
   const refresh = () => setRecords(getData().duties.filter((d: DutyRecord) => d.type === '值班'));
 
-  const save = () => { if (!date) { toast('请填写日期'); return; } saveDuty({ id: 'duty_' + Date.now(), date, type: '值班', description }); refresh(); setShowForm(false); setDate(''); setDescription(''); toast('✅ 已保存'); };
+  const resetForm = () => { setEditId(''); setDate(''); setEndDate(''); setLeader(''); setMembers(''); setDescription(''); };
+
+  /** 用户：「值班记录也只有删除没有编辑」 */
+  const startEdit = (r: DutyRecord) => {
+    setEditId(r.id); setDate(r.date); setEndDate(r.endDate || '');
+    setLeader(r.leader || ''); setMembers(r.members || ''); setDescription(r.description || '');
+    setShowForm(true);
+  };
+
+  /** 用户：「值周有时候是一周或者某个时间段，现在只能填一天」——所以加了结束日期 */
+  const save = () => {
+    if (!date) { toast('请填写开始日期'); return; }
+    if (endDate && endDate < date) { toast('结束日期不能早于开始日期'); return; }
+    const editing = !!editId;
+    saveDuty({
+      id: editId || 'duty_' + Date.now(), date,
+      endDate: endDate || undefined,
+      type: '值班', description,
+      leader: leader.trim() || undefined,
+      members: members.trim() || undefined,
+    });
+    refresh(); setShowForm(false); resetForm();
+    toast(editing ? '✅ 已更新' : '✅ 已保存');
+  };
 
   const total = records.length;
+  /** 一条记录算几天：填了结束日期就按区间算，不然就是 1 天 */
+  const spanDays = (r: DutyRecord) => {
+    if (!r.endDate || r.endDate === r.date) return 1;
+    const a = new Date(r.date + 'T00:00:00').getTime();
+    const b = new Date(r.endDate + 'T00:00:00').getTime();
+    if (!(b >= a)) return 1;
+    return Math.round((b - a) / 86400000) + 1;
+  };
+  const dateText = (r: DutyRecord) => (r.endDate && r.endDate !== r.date ? `${r.date} ~ ${r.endDate}` : r.date);
+  const totalDays = records.reduce((s, r) => s + spanDays(r), 0);
+
+  /* 填过的领导 / 成员留作下拉建议，下次不用重新打 */
+  const leaderPool = Array.from(new Set(records.map(r => r.leader || '').filter(Boolean)));
+  const memberPool = Array.from(new Set(records.map(r => r.members || '').filter(Boolean)));
+
   const byMonth: Record<string, number> = {};
   for (const r of records) { const m = r.date.slice(0, 7); byMonth[m] = (byMonth[m] || 0) + 1; }
   const monthKeys = Object.keys(byMonth).sort();
@@ -1727,8 +1796,8 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
         <div className="card-header"><span className="header-icon">📅</span><span>值班统计</span></div>
         <div className="card-body">
           <div className="salary-stats">
-            <div className="stat-card"><div className="stat-label">值班总次数</div><div className="stat-value">{total}</div></div>
-            <div className="stat-card"><div className="stat-label">涉及月份</div><div className="stat-value">{monthKeys.length}</div></div>
+            <div className="stat-card"><div className="stat-label">值班次数</div><div className="stat-value">{total}</div></div>
+            <div className="stat-card"><div className="stat-label">合计天数</div><div className="stat-value">{totalDays}</div></div>
           </div>
 
           {monthKeys.length > 0 && (
@@ -1739,15 +1808,34 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
           )}
 
           <div className="btn-row">
-            <button className="btn btn-primary" onClick={() => setShowForm(true)}>➕ 添加</button>
+            <button className="btn btn-primary" onClick={() => { resetForm(); setShowForm(true); }}>➕ 添加</button>
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportDutyCSV(records)}>📊 导出Excel</button>}
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportDutyHTML(records)}>📄 导出PDF</button>}
           </div>
           {showForm && (
             <div className="form-stack" style={{ marginTop: 12 }}>
-              <div className="form-group"><label>日期</label><input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} /></div>
+              <div className="form-group"><label>开始日期</label><input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} /></div>
+              <div className="form-group">
+                <label>结束日期（只值一天就不用填）</label>
+                <input type="date" className="form-input" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <p className="hint">值周常常是一整周 —— 填上结束日期就算「一段时间」，天数会自动统计。</p>
+              </div>
+              <div className="form-group">
+                <label>值周领导</label>
+                <input className="form-input" list="duty-leader-list" value={leader} onChange={e => setLeader(e.target.value)} placeholder="姓名" />
+                <datalist id="duty-leader-list">{leaderPool.map(v => <option key={v} value={v} />)}</datalist>
+              </div>
+              <div className="form-group">
+                <label>值周成员</label>
+                <input className="form-input" list="duty-member-list" value={members} onChange={e => setMembers(e.target.value)} placeholder="多人用「、」隔开，如：张××、李××" />
+                <datalist id="duty-member-list">{memberPool.map(v => <option key={v} value={v} />)}</datalist>
+                <p className="hint">自己填就行；填过一次以后，下次点输入框会给出建议。</p>
+              </div>
               <div className="form-group"><label>备注</label><input className="form-input" value={description} onChange={e => setDescription(e.target.value)} placeholder="如：行政值班" /></div>
-              <div className="btn-row"><button className="btn btn-primary" onClick={save}>保存</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>取消</button></div>
+              <div className="btn-row">
+                <button className="btn btn-primary" onClick={save}>{editId ? '保存修改' : '保存'}</button>
+                <button className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>取消</button>
+              </div>
             </div>
           )}
 
@@ -1757,14 +1845,16 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
               <div className="section-title">📋 值班记录表</div>
               <div className="tbl-scroll">
               <table className="data-table">
-                <thead><tr><th>序号</th><th>日期</th><th>备注</th><th>操作</th></tr></thead>
+                <thead><tr><th>序号</th><th>日期</th><th>值周领导</th><th>值周成员</th><th>备注</th><th>操作</th></tr></thead>
                 <tbody>
                   {records.map((r, idx) => (
                     <tr key={r.id}>
                       <td>{idx + 1}</td>
-                      <td>{r.date}</td>
+                      <td>{dateText(r)}</td>
+                      <td>{r.leader || '-'}</td>
+                      <td>{r.members || '-'}</td>
                       <td>{r.description || '-'}</td>
-                      <td><button className="btn btn-small btn-secondary" onClick={() => { deleteDuty(r.id); refresh(); toast('已删除'); }}>删除</button></td>
+                      <td><span className="tbl-ops"><button className="btn btn-small btn-secondary" onClick={() => startEdit(r)}>编辑</button><button className="btn btn-small btn-danger" onClick={() => { deleteDuty(r.id); refresh(); toast('已删除'); }}>删除</button></span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1783,6 +1873,7 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
 function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
   const [records, setRecords] = useState<DutyRecord[]>(() => getData().duties.filter((d: DutyRecord) => d.type === '代课'));
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState('');
   const [date, setDate] = useState('');
   const [substituteFor, setSubstituteFor] = useState('');
   const [period, setPeriod] = useState('');
@@ -1790,7 +1881,22 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
   const [description, setDescription] = useState('');
   const refresh = () => setRecords(getData().duties.filter((d: DutyRecord) => d.type === '代课'));
 
-  const save = () => { if (!date) { toast('请填写日期'); return; } saveDuty({ id: 'duty_' + Date.now(), date, type: '代课', description, substituteFor, period, classSubject }); refresh(); setShowForm(false); setDate(''); setSubstituteFor(''); setPeriod(''); setClassSubject(''); setDescription(''); toast('✅ 已保存'); };
+  const resetForm = () => { setEditId(''); setDate(''); setSubstituteFor(''); setPeriod(''); setClassSubject(''); setDescription(''); };
+
+  /** 用户：代课记录也只有删除没有编辑 */
+  const startEdit = (r: DutyRecord) => {
+    setEditId(r.id); setDate(r.date); setSubstituteFor(r.substituteFor || '');
+    setPeriod(r.period || ''); setClassSubject(r.classSubject || ''); setDescription(r.description || '');
+    setShowForm(true);
+  };
+
+  const save = () => {
+    if (!date) { toast('请填写日期'); return; }
+    const editing = !!editId;
+    saveDuty({ id: editId || 'duty_' + Date.now(), date, type: '代课', description, substituteFor, period, classSubject });
+    refresh(); setShowForm(false); resetForm();
+    toast(editing ? '✅ 已更新' : '✅ 已保存');
+  };
 
   const total = records.length;
   const byMonth: Record<string, number> = {};
@@ -1832,7 +1938,7 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
           )}
 
           <div className="btn-row">
-            <button className="btn btn-primary" onClick={() => setShowForm(true)}>➕ 添加</button>
+            <button className="btn btn-primary" onClick={() => { resetForm(); setShowForm(true); }}>➕ 添加</button>
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportSubCSV(records)}>📊 导出Excel</button>}
             {records.length > 0 && <button className="btn btn-outline" onClick={() => exportSubHTML(records)}>📄 导出PDF</button>}
           </div>
@@ -1843,7 +1949,7 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
               <div className="form-group"><label>节次</label><input className="form-input" value={period} onChange={e => setPeriod(e.target.value)} placeholder="如：第1节" /></div>
               <div className="form-group"><label>班级科目</label><input className="form-input" value={classSubject} onChange={e => setClassSubject(e.target.value)} placeholder="如：初一(1)语文" /></div>
               <div className="form-group"><label>备注</label><input className="form-input" value={description} onChange={e => setDescription(e.target.value)} /></div>
-              <div className="btn-row"><button className="btn btn-primary" onClick={save}>保存</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>取消</button></div>
+              <div className="btn-row"><button className="btn btn-primary" onClick={save}>{editId ? '保存修改' : '保存'}</button><button className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>取消</button></div>
             </div>
           )}
 
@@ -1862,7 +1968,7 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
                       <td>{r.substituteFor || '-'}</td>
                       <td>{r.period || '-'}</td>
                       <td>{r.classSubject || '-'}</td>
-                      <td><button className="btn btn-small btn-secondary" onClick={() => { deleteDuty(r.id); refresh(); toast('已删除'); }}>删除</button></td>
+                      <td><span className="tbl-ops"><button className="btn btn-small btn-secondary" onClick={() => startEdit(r)}>编辑</button><button className="btn btn-small btn-danger" onClick={() => { deleteDuty(r.id); refresh(); toast('已删除'); }}>删除</button></span></td>
                     </tr>
                   ))}
                 </tbody>

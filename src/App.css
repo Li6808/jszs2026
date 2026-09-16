@@ -150,6 +150,10 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  /* v41.2 / v45：返回按钮与标题并排一行，标题栏高度不变 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: calc(11px + env(safe-area-inset-top, 0px)) 16px 13px;
   background:
     linear-gradient(135deg, rgba(255, 45, 85, 0.92) 0%, rgba(255, 100, 130, 0.92) 50%, rgba(255, 149, 0, 0.88) 100%);
@@ -1612,11 +1616,16 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   overflow: hidden;
 }
 .hw-session-header {
-  display: flex; justify-content: space-between; align-items: center;
+  /* v41.2 / v45：右边那排状态小标签不许把「日期 · 作业名」压窄 ——
+     用户实测「作业收缴日期和作业标题这个地方有点窄，字都没显示，或者换行了」。
+     允许换行后，挤不下时整组状态掉到第二行，左边就能占满整行。 */
+  display: flex; flex-wrap: wrap; gap: 4px 8px;
+  justify-content: space-between; align-items: center;
   padding: 10px 12px;
   cursor: pointer;
   transition: background 0.15s;
 }
+.hw-session-header > div:last-child { flex-shrink: 0; margin-left: auto; }
 .hw-session-header:hover { background: var(--glass-soft); }
 .hw-session-body {
   padding: 10px 12px;
@@ -2841,3 +2850,26 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
       .rc-class-card / .rc-panel / .hw-class-card / .hw-session-card /
       .hw-session-header / .hw-session-body / .hw-student-list
    ============================================================ */
+
+/* ---------- 电脑端返回按钮（v41.2 / v45） ----------
+   手机能从屏幕左边缘右滑返回（那是 touch 事件），电脑上没有对应手势，
+   所以表头里放一个真按钮。只在非首页出现，与标题同一行，标题栏高度不变。 */
+.header-back {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 4px 11px 4px 7px;
+  border: 0.5px solid rgba(255, 255, 255, 0.55);
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff; font-family: inherit;
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.header-back:active { transform: scale(0.96); }
+.header-back-arrow { font-size: 17px; line-height: 1; margin-top: -1px; }
+
+/* ---------- 表格里并排的「编辑 / 删除」（v41.2 / v45） ---------- */
+.tbl-ops { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------- 版本记录「只列最近 N 个」的说明（v41.2 / v45） ---------- */
+.ver-more { margin: 8px 0 2px; font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
