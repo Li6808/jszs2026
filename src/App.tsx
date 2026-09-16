@@ -838,7 +838,7 @@ export function SchedulePage({ settings, periodNames, schedule, toast, openQr }:
               onClick={() => setShowPeriodTime(v => !v)}
               title={showPeriodTime ? '折叠时间,只看节次' : '展开时间,显示每节课具体时段'}
             >
-              {showPeriodTime ? '⏰ 折叠时间' : '⏰ 展开时间'}
+              {showPeriodTime ? '⏰ 折叠' : '⏰ 展开'}
             </button>
             <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>📊 表格</button>
             <button className={`view-tab ${viewMode === 'image' ? 'active' : ''}`} onClick={() => { setViewMode('image'); setTimeout(() => drawScheduleImage(canvasRef.current), 100); }}>🖼️ 图片</button>
@@ -881,7 +881,7 @@ export function SchedulePage({ settings, periodNames, schedule, toast, openQr }:
                 </table>
               </div>
               <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
-                💡 顶部「⏰ 折叠时间」可让表格更紧凑;作息时间表可点击标题折叠
+                💡 顶部「⏰ 折叠」可让表格更紧凑;作息时间表可点击标题折叠
               </p>
             </>
           )}

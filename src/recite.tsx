@@ -1346,7 +1346,8 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
           )}
 
           {(record.students.length > 0 && activePoems.length > 0) && (
-            <div className="btn-row" style={{ marginTop: 18, flexWrap: 'wrap' }}>
+            /* v35：原来 flex-wrap 会摊成两三行，现在压成一行（放不下就横向滚） */
+            <div className="rc-export-row">
               <button className="btn btn-small btn-outline" onClick={exportCSVFile}>📊 导出CSV</button>
               <button className="btn btn-small btn-outline" onClick={exportPDF}>📄 打印/PDF</button>
               <button className="btn btn-small btn-success" onClick={() => { drawCanvas(); setShowImage(true); }}>🖼️ 预览大图</button>
@@ -1471,10 +1472,10 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
           )}
         </span>
       </div>
-      <p className="hint" style={{ marginBottom: 10 }}>
-        先选状态，再点格子标记。点学生姓名可把该生整行标为所选状态；点篇名进入快速抽查；
-        格子右上角有 <b>✎</b> 说明记过错字，<b>长按格子</b>（手机上按住 0.5 秒）可记录错字。
-        往下翻学生时，顶上的篇名表头会一直钉住不动。
+      {/* v35：这段说明原来占三行、把表格挤下去，压成两行 */}
+      <p className="hint" style={{ marginBottom: 8 }}>
+        先选状态再点格子。点姓名＝整行标记，点篇名＝快速抽查，<b>长按</b>＝记错字。
+        表头已固定，往下翻学生不会跑。
       </p>
 
       {/* tbl-scroll：表头（篇名）固定在上沿；首列（学生姓名）也固定，横向找篇目时不会迷路 */}

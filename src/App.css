@@ -1071,10 +1071,28 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
       sticky 表头就永远不会生效 —— 这是最容易踩的坑。
    ⚠️ 表头 / 首列底色必须不透明，否则滚动的内容会从底下透出来（毛玻璃色不能用）。 */
 :root {
-  --tbl-h: 62vh;
+  /* 顶部「教师个人助手」标题栏的实际高度：上下 padding 22 + 26，标题行高约 36×1.1 */
+  --app-header-h: calc(88px + env(safe-area-inset-top, 0px));
+  /* 表格下面还要留多少可视空间（各页不同，按需覆盖本变量）。
+     ⚠️ 只能给大、不能给小：给小了表头会被标题栏压住。 */
+  --tbl-tail: 46px;
+  /* 表格高度上限 = 视口高 − 标题栏 − 下方留白（v35 起，原来写死 62vh，只有 8 行）。
+     →  表格几乎占满「标题栏以下」的整屏：一屏能看的行数最多；
+        而且往上滑时，表格上沿滑到标题栏下沿时页面正好到底，
+        表头就钉在那里不再上滑，往下翻的永远是表格里的内容。 */
+  --tbl-h: max(260px, calc(100vh - var(--app-header-h) - var(--tbl-tail)));
   --tbl-head-bg: #FFFFFF;
   --tbl-head-line: rgba(0, 0, 0, 0.10);
   --tbl-col-bg: #FFFFFF;
+}
+/* 手机浏览器地址栏会伸缩，只有 dvh 是「真正看得见的高度」
+   （老浏览器不认识 dvh → 上面的 vh 版本继续生效，不会失效） */
+@supports (height: 100dvh) {
+  :root { --tbl-h: max(260px, calc(100dvh - var(--app-header-h) - var(--tbl-tail))); }
+}
+/* 窄屏标题字号会降到 24px（见文件末尾 @media 400px），标题栏随之矮一截 */
+@media (max-width: 400px) {
+  :root { --app-header-h: calc(75px + env(safe-area-inset-top, 0px)); }
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -1108,24 +1126,29 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .tbl-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(142, 142, 147, 0.4); border-radius: 3px; }
 
-/* 课表：表头原本是主题粉色，固定后底色换成同色系的不透明色，不然压不住滚动内容 */
-.schedule-scroll { --tbl-h: 56vh; --tbl-head-bg: #FFE6EB; --tbl-col-bg: #FBF5F6; }
+/* 课表：表头原本是主题粉色，固定后底色换成同色系的不透明色，不然压不住滚动内容。
+   v35：表格下面还有一行提示文字，--tbl-tail 留大一点，表头才不会被标题栏压住。 */
+.schedule-scroll { --tbl-tail: 76px; --tbl-head-bg: #FFE6EB; --tbl-col-bg: #FBF5F6; }
 @media (prefers-color-scheme: dark) {
   .schedule-scroll { --tbl-head-bg: #4A1D26; --tbl-col-bg: #241A1F; }
 }
 
 /* 背诵进度矩阵：靠 border-spacing: 2px 分隔格子，表头固定后内容会从这 2px 缝里透出来
    → 用同色描边把缝补上（描边不吃布局，不会改变列宽）。 */
+/* 矩阵下面还有一排导出按钮（已压成一行），给它们留出空间，别互相压 */
+.tbl-scroll.rc-matrix-wrap { --tbl-tail: 100px; }
 .tbl-scroll.rc-matrix-wrap table > thead > tr > th { box-shadow: 0 0 0 2px var(--tbl-head-bg); }
 
 /* =================== View Tabs =================== */
 
-.view-tabs { display: flex; gap: 6px; }
+/* v35：三个视图按钮收小一档，窄屏也要挤在标题那一行里，别被挤到第二行占地方 */
+.view-tabs { display: flex; gap: 5px; flex-shrink: 0; }
 .view-tab {
-  padding: 6px 14px;
+  padding: 5px 10px;
   border: none;
   border-radius: var(--r-full);
-  font-size: 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
   background: var(--glass-soft);
   backdrop-filter: blur(20px);
   cursor: pointer;
@@ -1686,13 +1709,13 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 /* ---- 分页签 ---- */
 .rc-tabs {
-  display: flex; gap: 4px; overflow-x: auto; margin-bottom: 14px;
-  background: var(--glass-soft); padding: 4px; border-radius: var(--r-md);
+  display: flex; gap: 3px; overflow-x: auto; margin-bottom: 8px;
+  background: var(--glass-soft); padding: 3px; border-radius: var(--r-md);
 }
 .rc-tabs::-webkit-scrollbar { display: none; }
 .rc-tab {
-  flex: 0 0 auto; padding: 8px 12px; border-radius: var(--r-sm);
-  font-size: 12.5px; font-weight: 600; color: var(--text-3);
+  flex: 0 0 auto; padding: 6px 10px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 600; color: var(--text-3);
   cursor: pointer; white-space: nowrap; transition: all var(--t-fast);
 }
 .rc-tab.active { background: var(--glass-light); color: var(--primary); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
@@ -1789,21 +1812,23 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .rc-poem-move button:disabled { opacity: 0.3; }
 
 /* ---- 工具条 ---- */
-.rc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+/* v35：下拉 + 两个勾选尽量挤在一行（原来换行占两排，白吃掉表格一屏的行数）。
+   真放不下时才换行（flex-wrap 兜底），窄屏也不会溢出。 */
+.rc-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .rc-select {
-  flex: 1; min-width: 140px; padding: 9px 12px !important; font-size: 13px !important;
+  flex: 1 1 120px; min-width: 96px; padding: 7px 10px !important; font-size: 12.5px !important;
   border-radius: var(--r-sm) !important; background: var(--glass-soft) !important;
 }
 .rc-check {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12px; color: var(--text-2); white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; color: var(--text-2); white-space: nowrap; cursor: pointer;
 }
 .rc-check input { accent-color: var(--primary); }
 
 /* ---- 标记笔刷 ---- */
 .rc-brush-bar {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 9px 10px; background: var(--glass-soft);
+  padding: 6px 9px; background: var(--glass-soft);
   border-radius: var(--r-md); margin-bottom: 4px;
 }
 .rc-brush-label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
@@ -2035,15 +2060,27 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 /* ---- 撤销条 ---- */
 .rc-undo-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  flex-wrap: wrap; font-size: 12px; color: var(--text-3);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; font-size: 11.5px; color: var(--text-3);
   background: rgba(0, 122, 255, 0.07); border: 0.5px solid rgba(0, 122, 255, 0.22);
-  border-radius: var(--r-md); padding: 8px 12px; margin-bottom: 12px;
+  border-radius: var(--r-md); padding: 6px 10px; margin-bottom: 8px;
 }
 /* 撤销 / 恢复成对：外层容器负责「靠右 + 整组不拆行」，两个按钮都在里面 */
 .rc-undo-pair {
   display: inline-flex; align-items: center; gap: 6px;
   margin-left: auto; flex-shrink: 0;
+}
+
+/* ---- 导出按钮行（v35：从表格下面「占两三行」压成一行） ----
+   按钮缩小 + 不换行 + 放不下就横向滚（滚动条隐藏）。 */
+.rc-export-row {
+  display: flex; align-items: center; gap: 6px; margin-top: 12px;
+  flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.rc-export-row::-webkit-scrollbar { display: none; }
+.rc-export-row .btn {
+  flex: 0 0 auto; font-size: 11.5px; padding: 6px 10px; white-space: nowrap;
 }
 /* 撤销条本来就用 space-between 把两头推开，不需要单独覆盖 margin。
    （也别在这里再写一条 .rc-undo-pair —— 测试是按「最后一条同名规则」读样式的） */
@@ -2529,7 +2566,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 .rc-brush-label { font-weight: 700; margin-right: 4px; }
 
 .rc-brush-chip {
-  font-size: 12.5px; padding: 7px 13px;
+  font-size: 12px; padding: 6px 11px;
   opacity: 0.7;
 }
 .rc-brush-chip.active {
@@ -2653,7 +2690,7 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
         ③ 极窄屏（≤360px）切成单字「未 / 背 / 默 / 补」，兜底保证一行。
    ============================================================ */
 
-.rc-brush-bar { gap: 6px; row-gap: 7px; padding: 8px 10px; }
+.rc-brush-bar { gap: 6px; row-gap: 6px; padding: 6px 9px; }
 .rc-brush-label { font-size: 11px; margin-right: 0; flex-shrink: 0; }
 
 .rc-brush-group {

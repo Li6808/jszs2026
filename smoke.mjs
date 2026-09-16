@@ -1448,7 +1448,7 @@ check('★ 表头固定的样式前提：容器有高度上限 + 表头底色不
   }
   const colBg = [...css.matchAll(/--tbl-col-bg:\s*([^;]+);/g)].map(m => m[1].trim());
   for (const v of colBg) if (/rgba?\(/.test(v)) throw new Error('首列底色必须是实色：' + v);
-  return `${bgs.length} 组底色（亮/暗）· 容器上限 62vh`;
+  return `${bgs.length} 组底色（亮/暗）· 容器上限 = 视口 − 标题栏 − 下方留白`;
 });
 
 check('★ data-table 改成 border-collapse: separate（collapse 会让固定表头的下边框消失）', () => {
@@ -1475,6 +1475,76 @@ check('★ 四张登记表都挂上了表头固定（工资 / 值班 / 代课 / 
   return `${total} 张表 + 旧的 inline 写法已清干净`;
 });
 
+/* v35：用户说「作业收缴的表格只显示 8 个，太少；课表下面的时间也多显示点；
+   而且往上滑时表头应该钉在『教师个人助手』标题栏下面别滑走」。做法是把表格高度上限
+   从写死的 62vh 改成「视口高 − 标题栏高 − 表格下方留白」。这里锁死四件事：
+   ① 算式真的引用了 --app-header-h / --tbl-tail，而不是又写死一个 vh；
+   ② 手机地址栏会伸缩，必须同时给 dvh 版本（且放在 @supports 里，老浏览器不会整条失效）；
+   ③ 表格下面还有内容的页面（课表提示行、矩阵导出按钮行）要自己调大 --tbl-tail，
+      给小了表头会被标题栏压住 —— 这是这套算法唯一的坑；
+   ④ 工具条要真的收成一行（导出按钮行 nowrap + 可横滚、视图按钮字号收小）。 */
+console.log('\n[18] 表格高度（v35：铺满标题栏以下整屏，表头不滑走）');
+
+check('★ 表格高度上限 = 视口 − 标题栏 − 下方留白', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  if (!css.includes('--app-header-h')) throw new Error(':root 里没有 --app-header-h，表格高度就没法跟着标题栏算');
+  if (!css.includes('100vh - var(--app-header-h) - var(--tbl-tail)')) {
+    throw new Error('--tbl-h 不是「视口高 − 标题栏 − 下方留白」的算式（是不是又写死成 xxvh 了？）');
+  }
+  if (!css.includes('100dvh - var(--app-header-h) - var(--tbl-tail)')) {
+    throw new Error('缺 dvh 版本：手机上地址栏收缩后，表格会顶出屏幕下沿');
+  }
+  if (!/@supports \(height: 100dvh\)/.test(css)) {
+    throw new Error('dvh 那行没放进 @supports —— 老浏览器不认识 dvh 时整条 max-height 会失效，表格不再滚动');
+  }
+  if (!/--tbl-h:\s*max\(\s*\d+px,/.test(css)) throw new Error('--tbl-h 没有下限保护，屏幕极矮时表格会被压成一条缝');
+  return 'vh 兜底 + dvh 精确版 + 最小高度保护';
+});
+
+check('★ 表格下方还有内容的页面，单独留出了空间（表头才不会被标题栏压住）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  // 课表：表格下面有一行提示；背诵矩阵：表格下面那排导出按钮。
+  // ⚠️ 不能用 lastIndexOf：暗色主题里还会再写一次 .schedule-scroll（只改底色、没有 --tbl-tail），
+  //    取最后一条就会取到它。这里要求「存在一条带 --tbl-tail 的规则」。
+  for (const [re, min, why] of [
+    [/\.schedule-scroll \{[^}]*?--tbl-tail:\s*(\d+)px/g, 60, '课表表格下面有一行提示文字'],
+    [/\.tbl-scroll\.rc-matrix-wrap \{[^}]*?--tbl-tail:\s*(\d+)px/g, 80, '矩阵下面有导出按钮行'],
+  ]) {
+    const hits = [...css.matchAll(re)];
+    if (!hits.length) {
+      throw new Error(`没有单独设 --tbl-tail（${why}）—— 不设会少算下方高度，表头会被标题栏压住`);
+    }
+    for (const m of hits) {
+      if (Number(m[1]) < min) throw new Error(`--tbl-tail 只有 ${m[1]}px，太小了：${why}`);
+    }
+  }
+  return '课表留 60px+ / 矩阵留 80px+';
+});
+
+check('★ 工具条与导出按钮行收成一行（不再各占两排）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const i = css.lastIndexOf('.rc-export-row {');
+  if (i < 0) throw new Error('没有 .rc-export-row —— 背诵页的导出按钮又会被摊成两三行');
+  const block = css.slice(i, css.indexOf('}', i));
+  for (const want of ['flex-wrap: nowrap', 'overflow-x: auto']) {
+    if (!block.includes(want)) throw new Error('.rc-export-row 缺少 ' + want);
+  }
+  const src = readFileSync(new URL('./src/recite.tsx', import.meta.url), 'utf8');
+  if (!src.includes('className="rc-export-row"')) throw new Error('背诵页导出按钮没挂 rc-export-row，样式白写');
+  if (/className="btn-row" style=\{\{ marginTop: 18, flexWrap: 'wrap' \}\}/.test(src)) {
+    throw new Error('导出按钮还是旧的 flexWrap: wrap 写法，会在窄屏摊成两三行');
+  }
+  // 课表右上角三个视图按钮：字号不收回来的话，窄屏会被挤到第二行
+  const vi = css.lastIndexOf('.view-tab {');
+  const vblock = css.slice(vi, css.indexOf('}', vi));
+  const fs = vblock.match(/font-size:\s*([\d.]+)px/);
+  if (!fs) throw new Error('.view-tab 没写字号');
+  if (Number(fs[1]) > 12) throw new Error(`.view-tab 字号 ${fs[1]}px 偏大，窄屏三个按钮会换行占两行`);
+  const ri = css.lastIndexOf('.rc-toolbar {');
+  const rblock = css.slice(ri, css.indexOf('}', ri));
+  if (!rblock.includes('flex-wrap: wrap')) throw new Error('.rc-toolbar 丢了 flex-wrap 兜底，极窄屏会溢出');
+  return '导出按钮一行 · 视图按钮收小 · 工具栏保留换行兜底';
+});
 /* ============================================================
    V34 · 误点「撤销」之后要能恢复
    用户原话：「有时候我会不小心点到那个撤销，但是又回不去了……
