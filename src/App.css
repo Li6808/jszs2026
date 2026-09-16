@@ -1034,7 +1034,9 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
 
 /* =================== Data Table =================== */
 
-.data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+/* border-collapse 必须是 separate：collapse 模式下 sticky 的表头单元格
+   在吸附时边框会跟着表格一起被滚走（表头看起来缺一条线）。只有 border-bottom，改后外观不变。 */
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; margin-top: 10px; }
 .data-table thead th {
   background: var(--glass-soft);
   padding: 10px;
@@ -1058,6 +1060,63 @@ input[type="date"] { appearance: none; -webkit-appearance: none; }
   font-size: 11px;
   font-weight: 600;
 }
+
+/* ============ 通用：表格滚动容器 + 表头固定（v33） ============
+   用法：把 <table> 外面那层 div 加上 class="tbl-scroll"；
+        需要「首列也跟着固定」时再加 tbl-first-sticky（课表用它）。
+   三层结构示例（标题要放在滚动容器外面，否则会跟着表一起滚走）：
+     <div><div class="section-title">…</div><div class="tbl-scroll"><table>…</table></div></div>
+
+   ⚠️ 关键：容器必须有高度上限（--tbl-h），否则不会产生纵向滚动，
+      sticky 表头就永远不会生效 —— 这是最容易踩的坑。
+   ⚠️ 表头 / 首列底色必须不透明，否则滚动的内容会从底下透出来（毛玻璃色不能用）。 */
+:root {
+  --tbl-h: 62vh;
+  --tbl-head-bg: #FFFFFF;
+  --tbl-head-line: rgba(0, 0, 0, 0.10);
+  --tbl-col-bg: #FFFFFF;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tbl-head-bg: #1C1C1E;
+    --tbl-head-line: rgba(255, 255, 255, 0.12);
+    --tbl-col-bg: #1C1C1E;
+  }
+}
+.tbl-scroll {
+  overflow: auto;
+  max-height: var(--tbl-h);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.tbl-scroll > table { margin-top: 0; }
+.tbl-scroll table > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--tbl-head-bg);
+  box-shadow: 0 1px 0 var(--tbl-head-line);
+}
+.tbl-scroll table > thead > tr > th:first-child { z-index: 4; }
+.tbl-scroll.tbl-first-sticky table > thead > tr > th:first-child { left: 0; }
+.tbl-scroll.tbl-first-sticky table > tbody > tr > td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--tbl-col-bg);
+}
+.tbl-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.tbl-scroll::-webkit-scrollbar-thumb { background: rgba(142, 142, 147, 0.4); border-radius: 3px; }
+
+/* 课表：表头原本是主题粉色，固定后底色换成同色系的不透明色，不然压不住滚动内容 */
+.schedule-scroll { --tbl-h: 56vh; --tbl-head-bg: #FFE6EB; --tbl-col-bg: #FBF5F6; }
+@media (prefers-color-scheme: dark) {
+  .schedule-scroll { --tbl-head-bg: #4A1D26; --tbl-col-bg: #241A1F; }
+}
+
+/* 背诵进度矩阵：靠 border-spacing: 2px 分隔格子，表头固定后内容会从这 2px 缝里透出来
+   → 用同色描边把缝补上（描边不吃布局，不会改变列宽）。 */
+.tbl-scroll.rc-matrix-wrap table > thead > tr > th { box-shadow: 0 0 0 2px var(--tbl-head-bg); }
 
 /* =================== View Tabs =================== */
 

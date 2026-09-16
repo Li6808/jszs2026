@@ -706,7 +706,8 @@ function LeavePage({ settings, schoolName, semesterText, periodNames, toast, ref
 }
 
 /* ============ 课表查看(支持表格/图片双模式;时间可折叠) ============ */
-function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
+/* 导出是为了让 smoke.mjs 能真实渲染它做回归（表头固定那几条断言） */
+export function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
   const [viewMode, setViewMode] = useState<'table' | 'image'>('table');
   // 时间显示开关:默认折叠(更紧凑),true=展开,显示 07:20-07:50;false=只显示节次名
   const [showPeriodTime, setShowPeriodTime] = useState<boolean>(true);
@@ -861,7 +862,9 @@ function SchedulePage({ settings, periodNames, schedule, toast, openQr }: any) {
                   )}
                 </div>
               )}
-              <div className="schedule-scroll">
+              {/* tbl-scroll = 表头固定；tbl-first-sticky = 「节次」那一列也跟着固定，
+                  横向滑动看星期五的时候还知道这一行是第几节 */}
+              <div className="schedule-scroll tbl-scroll tbl-first-sticky">
                 <table className="schedule-table">
                   <thead><tr><th>节次<br/><span style={{fontSize:10,fontWeight:400,color:'#999'}}>时间</span></th>{dayNames.map(d => <th key={d}>{d}</th>)}</tr></thead>
                   <tbody>
@@ -1569,10 +1572,11 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
             </div>
           )}
 
-          {/* 数据表格 */}
+          {/* 数据表格：标题放滚动容器外面，表头由 .tbl-scroll 固定 */}
           {records.length > 0 && (
-            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+            <div style={{ marginTop: 16 }}>
               <div className="section-title">📋 记录明细</div>
+              <div className="tbl-scroll">
               <table className="data-table">
                 <thead><tr><th>日期</th><th>描述</th><th>类别</th><th>金额</th><th>操作</th></tr></thead>
                 <tbody>
@@ -1587,6 +1591,7 @@ function SalaryPage({ toast }: { toast: (msg: string) => void }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
           {records.length === 0 && <div className="empty"><div className="empty-icon">💰</div><p>暂无记录</p></div>}
@@ -1644,8 +1649,9 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
 
           {/* 统计表格 */}
           {records.length > 0 && (
-            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+            <div style={{ marginTop: 16 }}>
               <div className="section-title">📋 值班记录表</div>
+              <div className="tbl-scroll">
               <table className="data-table">
                 <thead><tr><th>序号</th><th>日期</th><th>备注</th><th>操作</th></tr></thead>
                 <tbody>
@@ -1659,6 +1665,7 @@ function DutyOnlyPage({ toast }: { toast: (msg: string) => void }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
           {records.length === 0 && <div className="empty"><div className="empty-icon">📅</div><p>暂无值班记录</p></div>}
@@ -1738,8 +1745,9 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
 
           {/* 统计表格 */}
           {records.length > 0 && (
-            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+            <div style={{ marginTop: 16 }}>
               <div className="section-title">📋 代课记录表</div>
+              <div className="tbl-scroll">
               <table className="data-table">
                 <thead><tr><th>序号</th><th>日期</th><th>替谁</th><th>节次</th><th>班级科目</th><th>操作</th></tr></thead>
                 <tbody>
@@ -1755,6 +1763,7 @@ function SubstituteOnlyPage({ toast }: { toast: (msg: string) => void }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
           {records.length === 0 && <div className="empty"><div className="empty-icon">📊</div><p>暂无代课记录</p></div>}

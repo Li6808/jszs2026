@@ -780,7 +780,8 @@ function ClassSessionsView({ record, onClose, onChanged, toast, openQr }: {
         {record.students.length > 0 && record.sessions.length > 0 && (
           <div style={{ marginTop: 20 }}>
             <div className="section-title">📈 累计统计</div>
-            <div style={{ overflowX: 'auto' }}>
+            {/* tbl-scroll：表头固定（标题留在滚动容器外面） */}
+            <div className="tbl-scroll">
               <table className="data-table">
                 <thead><tr><th>序号</th><th>姓名</th><th>已交</th><th>未交</th><th>迟交</th><th>请假</th><th>未交率</th></tr></thead>
                 <tbody>

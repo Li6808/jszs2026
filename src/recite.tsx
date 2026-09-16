@@ -1415,9 +1415,11 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
       <p className="hint" style={{ marginBottom: 10 }}>
         先选状态，再点格子标记。点学生姓名可把该生整行标为所选状态；点篇名进入快速抽查；
         格子右上角有 <b>✎</b> 说明记过错字，<b>长按格子</b>（手机上按住 0.5 秒）可记录错字。
+        往下翻学生时，顶上的篇名表头会一直钉住不动。
       </p>
 
-      <div className="rc-matrix-wrap">
+      {/* tbl-scroll：表头（篇名）固定在上沿；首列（学生姓名）也固定，横向找篇目时不会迷路 */}
+      <div className="rc-matrix-wrap tbl-scroll">
         <table className="rc-matrix">
           <thead>
             <tr>

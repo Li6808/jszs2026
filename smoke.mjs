@@ -2,7 +2,7 @@
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { RecitePage, ClassEditor, ClassDetail, QuickCheck, MatrixView, STATUS_META, isPassed } from './src/recite.tsx';
-import App, { VersionSection, SettingsPage } from './src/App.tsx';
+import App, { VersionSection, SettingsPage, SchedulePage } from './src/App.tsx';
 import { readFileSync, statSync } from 'node:fs';
 import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } from './src/reciteData.ts';
 import {
@@ -1375,6 +1375,102 @@ check('换图标脚本与说明都在源码里，脚本带可执行位（打包/
   const mode = statSync(new URL('./replace-icon/' + files[0], import.meta.url)).mode;
   if (!(mode & 0o111)) throw new Error('「换图标（Mac）.command」没有可执行位，双击会是灰的');
   return files.join(' + ');
+});
+
+/* v33：表头固定。用户要求「课表的周几表头、古诗文背诵的篇目表头都要固定住，
+   以后凡是这种登记表格的地方都固定表头」。这里把四件事锁死：
+   ① 通用容器 .tbl-scroll 的表头真的 sticky，并且容器有高度上限
+     （没有高度上限就不会产生纵向滚动，sticky 表头等于没写 —— 最容易踩的坑）；
+   ② 表头/首列底色必须是不透明色（毛玻璃色会让滚动的内容从底下透出来）；
+   ③ 课表与背诵矩阵的容器真的挂上了这个类（SSR 真实渲染断言）；
+   ④ 四张 data-table 都迁到了这个类，且不再有旧的 inline overflowX 写法。 */
+console.log('\n[17] 表头固定（课表 / 背诵篇目 / 各登记表）');
+
+check('★ 课表：表头固定，「节次」那一列也跟着固定', () => {
+  const h = R(React.createElement(SchedulePage, {
+    settings: { schoolName: '××中学', timeTable: [{ name: '第1节', startTime: '08:00', endTime: '08:40' }] },
+    periodNames: ['第1节', '第2节', '晨读'],
+    schedule: { courses: { 1: [{ period: '第1节', classSubject: '初二(1)语文' }] } },
+    ...props,
+  }));
+  const wrap = h.match(/<div class="schedule-scroll[^"]*">/);
+  if (!wrap) throw new Error('课表外层容器不见了');
+  for (const c of ['tbl-scroll', 'tbl-first-sticky']) {
+    if (!wrap[0].includes(c)) throw new Error(`课表容器缺 ${c} —— 表头/首列不会固定`);
+  }
+  const thead = h.match(/<thead>([\s\S]*?)<\/thead>/);
+  if (!thead) throw new Error('课表没有表头');
+  for (const d of ['星期一', '星期二', '星期三', '星期四', '星期五']) {
+    if (!thead[1].includes(d)) throw new Error('表头缺 ' + d);
+  }
+  if (!thead[1].includes('节次')) throw new Error('表头缺「节次」列');
+  if (!h.includes('course-tag')) throw new Error('课表格子没渲染出来');
+  return '节次 + 星期一~五 固定，横向滑动也知道看的是第几节';
+});
+
+check('★ 背诵进度矩阵：篇目表头（篇名）固定', () => {
+  const list = students.map(st => ({ st, passed: 0, redo: 0, left: poems.length, total: poems.length, counted: true }));
+  const h = R(React.createElement(MatrixView, {
+    record: rec, poems, students: list, brush: 'todo', setBrush: noop,
+    onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, undoDepth: 0, toast: noop,
+  }));
+  const wrap = h.match(/<div class="rc-matrix-wrap[^"]*">/);
+  if (!wrap || !wrap[0].includes('tbl-scroll')) throw new Error('背诵矩阵没挂 tbl-scroll —— 往下翻学生时篇名表头会跟着滚走');
+  const ths = h.match(/<th class="rc-th-poem"/g) || [];
+  if (ths.length !== poems.length) throw new Error(`篇目表头应为 ${poems.length} 个，实际 ${ths.length}`);
+  if (!h.includes('rc-sticky-col rc-th-name')) throw new Error('左上角「学生」格不是双轴固定（横竖滚动都会错位）');
+  return `${ths.length} 个篇目表头 + 学生列，双轴固定`;
+});
+
+check('★ 表头固定的样式前提：容器有高度上限 + 表头底色不透明', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const blockOf = (name) => {
+    const i = css.lastIndexOf(name);
+    if (i < 0) throw new Error('样式里找不到 ' + name);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  const wrap = blockOf('.tbl-scroll {');
+  for (const want of ['overflow: auto', 'max-height: var(--tbl-h)']) {
+    if (!wrap.includes(want)) throw new Error('.tbl-scroll 缺少 ' + want);
+  }
+  const head = blockOf('.tbl-scroll table > thead > tr > th {');
+  for (const want of ['position: sticky', 'top: 0', 'background: var(--tbl-head-bg)']) {
+    if (!head.includes(want)) throw new Error('表头样式缺少 ' + want);
+  }
+  const first = blockOf('.tbl-scroll.tbl-first-sticky table > tbody > tr > td:first-child {');
+  if (!first.includes('left: 0')) throw new Error('首列没有 left: 0，横向滚动时不会固定');
+  const bgs = [...css.matchAll(/--tbl-head-bg:\s*([^;]+);/g)].map(m => m[1].trim());
+  if (bgs.length < 2) throw new Error('亮色/暗色都要给表头底色（当前只有 ' + bgs.length + ' 处）');
+  for (const v of bgs) {
+    if (/rgba?\(|var\(/.test(v)) throw new Error('表头底色必须是不透明色，否则滚动内容会透出来：' + v);
+  }
+  const colBg = [...css.matchAll(/--tbl-col-bg:\s*([^;]+);/g)].map(m => m[1].trim());
+  for (const v of colBg) if (/rgba?\(/.test(v)) throw new Error('首列底色必须是实色：' + v);
+  return `${bgs.length} 组底色（亮/暗）· 容器上限 62vh`;
+});
+
+check('★ data-table 改成 border-collapse: separate（collapse 会让固定表头的下边框消失）', () => {
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  const i = css.lastIndexOf('.data-table {');
+  const block = css.slice(i, css.indexOf('}', i));
+  if (!block.includes('border-collapse: separate')) throw new Error('仍是 collapse，表头吸顶时边框会缺一条');
+  if (!block.includes('border-spacing: 0')) throw new Error('separate 没有配 border-spacing: 0，格子会散开');
+  return 'separate + spacing 0（只有下边框，外观不变）';
+});
+
+check('★ 四张登记表都挂上了表头固定（工资 / 值班 / 代课 / 作业收缴）', () => {
+  const need = { 'App.tsx': 3, 'homework.tsx': 1 };
+  let total = 0;
+  for (const f of Object.keys(need)) {
+    const src = readFileSync(new URL('./src/' + f, import.meta.url), 'utf8');
+    const found = (src.match(/className="tbl-scroll"/g) || []).length;
+    // 用「不少于」而不是「等于」：以后新加登记表只要照抄这个类即可，不会把测试弄红
+    if (found < need[f]) throw new Error(`${f} 里应有 ${need[f]} 处 className="tbl-scroll"，实际 ${found}`);
+    const inline = (src.match(/overflowX: 'auto'/g) || []).length;
+    if (inline) throw new Error(`${f} 还有 ${inline} 处旧的 inline overflowX —— 那种写法不会有固定表头`);
+    total += found;
+  }
+  return `${total} 张表 + 旧的 inline 写法已清干净`;
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);
