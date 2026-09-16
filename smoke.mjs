@@ -8,6 +8,7 @@ import { PRESET_VOLUMES, KEBIAO_STATS, QUIZ_COUNT, QUIZ_POEM_COUNT, QUIZ_MAP } f
 import {
   buildPoemsFromPreset, genId, importStudentsFromText, importPoemsFromText, parseQuizText,
   getReciteRecords, saveReciteRecord, clearUndo, pushUndo, popUndo, getUndoStack,
+  getRedoStack, pushRedo, popRedo, buildRedoEntry, planRedo, writeMarkValues, sameMark,
   pickWeightedStudent, isCounted, getData, mutateRecite, setData, clearAll,
   getStorageIssue, onStorageIssue, isReadOnly, resetAfterCorruption,
   normalizeModuleOrder, getModuleOrder, getBackupMeta,
@@ -1082,7 +1083,8 @@ check('★ V31：四个状态永远站同一行（同容器 + nowrap + 窄屏单
     record: rec, poems, students: list, brush: 'todo', setBrush: noop,
     onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, undoDepth: 0, toast: noop,
   }));
-  const g = h.match(/<span class="rc-brush-group">([\s\S]*?)<\/span>\s*<button/);
+  // v34 起撤销/恢复按钮成对包进 rc-undo-pair，所以右边界改成那个容器
+  const g = h.match(/<span class="rc-brush-group">([\s\S]*?)<\/span>\s*<span class="rc-undo-pair">/);
   if (!g) throw new Error('没有 rc-brush-group 容器 —— 四个状态还是各自独立的 flex item，窄屏会被拆行');
   const inner = g[1];
   const n = (inner.match(/rc-brush-chip/g) || []).length;
@@ -1471,6 +1473,153 @@ check('★ 四张登记表都挂上了表头固定（工资 / 值班 / 代课 / 
     total += found;
   }
   return `${total} 张表 + 旧的 inline 写法已清干净`;
+});
+
+/* ============================================================
+   V34 · 误点「撤销」之后要能恢复
+   用户原话：「有时候我会不小心点到那个撤销，但是又回不去了……
+              本来不想撤销的，但是被撤销了，恢复不了了。把这个做一个恢复。」
+   ============================================================ */
+
+console.log('\n[18] 撤销之后可以恢复');
+
+check('恢复栈：push / pop / 持久化 / 随班级一起清掉', () => {
+  clearUndo('rec_redo');
+  if (getRedoStack('rec_redo').length !== 0) throw new Error('初始应为空');
+  pushRedo('rec_redo', { at: 't', label: '标记 1 格', changes: [{ studentId: 's1', poemId: 'p1', next: { status: 'recited' }, afterUndo: null }] });
+  pushRedo('rec_redo', { at: 't', label: '批量标记 27 格', changes: [{ studentId: 's2', poemId: 'p2', next: null, afterUndo: { status: 'todo' } }] });
+  if (getRedoStack('rec_redo').length !== 2) throw new Error('入栈数量不对');
+  const last = popRedo('rec_redo');
+  if (last.label !== '批量标记 27 格') throw new Error('未后进先出');
+  if (!Object.keys(store).some(k => k.startsWith('teacher_recite_redo_'))) throw new Error('恢复栈没持久化到 localStorage');
+  clearUndo('rec_redo');
+  if (getRedoStack('rec_redo').length !== 0) throw new Error('clearUndo 没把恢复栈一起清掉');
+  if (Object.keys(store).some(k => k.startsWith('teacher_recite_redo_'))) throw new Error('清空后仍残留 key');
+  return 'LIFO 正常 · 已持久化 · 随班级一起清';
+});
+
+check('★ 撤销 → 恢复：整批格子原样回到标记后的样子', () => {
+  // 用一个独立的小 marks（不碰 rec_test 夹具，免得影响别的用例）
+  const marks0 = { s1: { p1: { status: 'todo' } } };
+  const entry = {
+    at: '', label: '全班标为「已背」',
+    changes: [
+      { studentId: 's1', poemId: 'p1', prev: { status: 'todo' } },
+      { studentId: 's1', poemId: 'p2', prev: null },   // 原来没有记录
+    ],
+  };
+  // ① 老师标记
+  const marked = writeMarkValues(marks0, [
+    { studentId: 's1', poemId: 'p1', value: { status: 'recited', reciteDate: '2026-09-16' } },
+    { studentId: 's1', poemId: 'p2', value: { status: 'recited', reciteDate: '2026-09-16' } },
+  ]);
+  // ② 误点撤销（组件里 undo() 的等价逻辑）
+  const redoEntry = buildRedoEntry(marked, entry);
+  const undone = writeMarkValues(marked, entry.changes.map(c => ({ studentId: c.studentId, poemId: c.poemId, value: c.prev })));
+  if (undone.s1.p2) throw new Error('撤销时原来没记录的格子应被删掉');
+  if (undone.s1.p1.status !== 'todo') throw new Error('撤销没还原原值');
+  // ③ 点恢复
+  const { items, skipped } = planRedo(undone, redoEntry);
+  if (skipped) throw new Error('没有任何新操作，不该跳过格子：' + skipped);
+  if (items.length !== entry.changes.length) throw new Error(`应恢复 ${entry.changes.length} 格，实际 ${items.length}`);
+  const back = writeMarkValues(undone, items);
+  const bad = [];
+  for (const c of entry.changes) {
+    if (!sameMark(back.s1?.[c.poemId], marked.s1?.[c.poemId])) bad.push(c.poemId);
+  }
+  if (bad.length) throw new Error(`${bad.join('/')} 格没有回到标记后的样子`);
+  if (back.s1.p2?.status !== 'recited') throw new Error('被删掉的格子没被放回来');
+  return `${entry.changes.length} 格原样恢复（含被删除的那格）`;
+});
+
+check('★ 撤销后你又重新标过的那几格：恢复时跳过，绝不覆盖新操作', () => {
+  const marks0 = { s1: { p1: { status: 'todo' } } };
+  const entry = {
+    at: '', label: '全班标为「已背」',
+    changes: [
+      { studentId: 's1', poemId: 'p1', prev: { status: 'todo' } },
+      { studentId: 's1', poemId: 'p2', prev: null },
+    ],
+  };
+  const marked = writeMarkValues(marks0, [
+    { studentId: 's1', poemId: 'p1', value: { status: 'recited' } },
+    { studentId: 's1', poemId: 'p2', value: { status: 'recited' } },
+  ]);
+  const redoEntry = buildRedoEntry(marked, entry);
+  const undone = writeMarkValues(marked, entry.changes.map(c => ({ studentId: c.studentId, poemId: c.poemId, value: c.prev })));
+  // 撤销之后，老师自己把 p1 手动标成了「待补背」—— 这格是新的心意，不能被恢复盖掉
+  const afterManual = writeMarkValues(undone, [{ studentId: 's1', poemId: 'p1', value: { status: 'redo' } }]);
+  const { items, skipped } = planRedo(afterManual, redoEntry);
+  if (skipped !== 1) throw new Error('应跳过 1 格，实际 ' + skipped);
+  if (items.length !== 1 || items[0].poemId !== 'p2') throw new Error('跳过的应该是被手动改过的 p1，只恢复 p2');
+  const back = writeMarkValues(afterManual, items);
+  if (back.s1.p1.status !== 'redo') throw new Error('手动标的「待补背」被覆盖了 —— 这正是要避免的');
+  if (back.s1.p2?.status !== 'recited') throw new Error('该恢复的那格没恢复');
+  return '跳过 1 格、恢复 1 格，手动标记原封不动';
+});
+
+check('★ 恢复之后还能再撤销（来回点不丢数据）', () => {
+  const marks0 = { s1: { p1: { status: 'todo' } } };
+  const undoEntry = { at: '', label: '标记 1 格为「已背」', changes: [{ studentId: 's1', poemId: 'p1', prev: { status: 'todo' } }] };
+  const marked = writeMarkValues(marks0, [{ studentId: 's1', poemId: 'p1', value: { status: 'recited' } }]);
+
+  // 撤销：把「撤销前的样子」存进恢复栈
+  const redoEntry = buildRedoEntry(marked, undoEntry);
+  const undone = writeMarkValues(marked, [{ studentId: 's1', poemId: 'p1', value: undoEntry.changes[0].prev }]);
+
+  // 恢复：组件里 redo() 会顺手压一条新的撤销记录
+  const { items } = planRedo(undone, redoEntry);
+  const newUndoEntry = {
+    at: '', label: redoEntry.label,
+    changes: items.map(it => ({ studentId: it.studentId, poemId: it.poemId, prev: undone.s1?.[it.poemId] || null })),
+  };
+  const redone = writeMarkValues(undone, items);
+  if (redone.s1.p1.status !== 'recited') throw new Error('恢复没生效');
+
+  // 再撤销一次，应回到「未背」
+  const undone2 = writeMarkValues(redone, newUndoEntry.changes.map(c => ({ studentId: c.studentId, poemId: c.poemId, value: c.prev })));
+  if (undone2.s1.p1.status !== 'todo') throw new Error('恢复后撤销不回去：' + JSON.stringify(undone2.s1.p1));
+  return '未背 → 已背 → 未背，可无限来回';
+});
+
+check('★ 工具条上的「↷ 恢复」：只在真的撤销过之后才出现', () => {
+  const list = students.map(st => ({ st, passed: 0, redo: 0, left: poems.length, total: poems.length, counted: true }));
+  const base = {
+    record: rec, poems, students: list, brush: 'todo', setBrush: noop,
+    onSetMark: noop, onBulkSet: noop, onQuickCheck: noop, onEditTypo: noop, onUndo: noop, redoDepth: 0, onRedo: noop, toast: noop,
+  };
+  const h0 = R(React.createElement(MatrixView, { ...base, undoDepth: 0, redoDepth: 0 }));
+  if (h0.includes('rc-redo-inline')) throw new Error('没撤销过也把「恢复」摆出来了，白占地方');
+
+  const h1 = R(React.createElement(MatrixView, { ...base, undoDepth: 0, redoDepth: 1 }));
+  if (!h1.includes('rc-redo-inline')) throw new Error('撤销之后没有出现「恢复」按钮 —— 用户就回不去了');
+  if (!h1.includes('↷ 恢复')) throw new Error('恢复按钮缺文字标签');
+  // 两个按钮必须在同一个容器里（窄屏只整组换行，不会拆散）
+  if (!/<span class="rc-undo-pair">[\s\S]*?rc-undo-inline[\s\S]*?rc-redo-inline[\s\S]*?<\/span>/.test(h1)) {
+    throw new Error('撤销 / 恢复没包在同一个 rc-undo-pair 容器里');
+  }
+  const css = readFileSync(new URL('./src/App.css', import.meta.url), 'utf8');
+  // ⚠️ 这里必须取「第一条」.rc-undo-pair 规则：窄屏媒体查询里还有一条
+  //    `.rc-undo-pair { gap: 5px; }`，用 lastIndexOf 会取到它，断言必然假失败。
+  const m = css.match(/\.rc-undo-pair\s*\{[^}]*\}/);
+  if (!m) throw new Error('样式里找不到 .rc-undo-pair');
+  if (!m[0].includes('inline-flex')) throw new Error('.rc-undo-pair 不是 inline-flex');
+  if (!m[0].includes('margin-left: auto')) throw new Error('.rc-undo-pair 没有靠右，按钮会跑到状态组后面');
+  return '有可恢复项才出现 · 两个按钮同容器 · 整组靠右';
+});
+
+check('★ 页面上方的撤销条：撤销过之后明确告诉你能恢复', () => {
+  clearUndo(rec.id);
+  pushRedo(rec.id, {
+    at: '', label: '全班 24 人 × 3 篇标为「已背」',
+    changes: [{ studentId: 's1', poemId: 'p1', next: { status: 'recited' }, afterUndo: null }],
+  });
+  const h = R(React.createElement(ClassDetail, { record: rec, onClose: noop, onChanged: noop, ...props }));
+  clearUndo(rec.id);
+  if (!h.includes('rc-undo-bar')) throw new Error('撤销过之后撤销条没出来');
+  if (!h.includes('↷ 恢复一步')) throw new Error('撤销条里没有「↷ 恢复一步」按钮');
+  if (!h.includes('不会丢数据')) throw new Error('撤销条没有把「可以恢复」讲清楚，老师不知道还能救回来');
+  return '出现撤销条 + 「↷ 恢复一步」+ 明确文案';
 });
 
 console.log(failures === 0 ? '\n✅ 全部通过\n' : `\n❌ ${failures} 项失败\n`);

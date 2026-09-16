@@ -19,6 +19,7 @@ import {
   getHomeworkClassRoster, importStudentsFromText, importPoemsFromText, parseQuizText,
   buildPoemsFromPreset, genId, isCounted, pickWeightedStudent,
   getUndoStack, pushUndo, popUndo, clearUndo, mutateRecite, DEFAULT_PLAN_RATE,
+  getRedoStack, pushRedo, popRedo, buildRedoEntry, planRedo, writeMarkValues,
 } from './storage';
 import type { UndoChange } from './storage';
 import {
@@ -804,6 +805,7 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
   const [onlyWeak, setOnlyWeak] = useState(false);
   const [quickPoemId, setQuickPoemId] = useState<string | null>(null);
   const [undoDepth, setUndoDepth] = useState(() => getUndoStack(record.id).length);
+  const [redoDepth, setRedoDepth] = useState(() => getRedoStack(record.id).length);
   const [typoTarget, setTypoTarget] = useState<{ studentId: string; poemId: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [showImage, setShowImage] = useState(false);
@@ -826,10 +828,17 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
     onChanged();
   };
 
+  const syncDepths = () => {
+    setUndoDepth(getUndoStack(record.id).length);
+    setRedoDepth(getRedoStack(record.id).length);
+  };
+
   const pushChanges = (label: string, changes: UndoChange[]) => {
     if (!changes.length) return;
     pushUndo(record.id, { at: new Date().toISOString(), label, changes });
-    setUndoDepth(getUndoStack(record.id).length);
+    // 注意:这里**不**清恢复栈。撤销之后你又标了几格,那些格子由 planRedo
+    // 逐格比对后自动跳过,不该因为「你又动手了」就把整条恢复记录作废。
+    syncDepths();
   };
 
   /** 把若干格写成目标状态 */
@@ -877,22 +886,50 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
     persist(r => ({ ...r, marks: applyStatus(r.marks, changes, status) }));
   };
 
-  /** 撤销上一步 */
+  /**
+   * 撤销上一步。
+   * 撤销的同时把「撤销前的样子」记进恢复栈(见 storage.ts 的说明),
+   * 误点了就在下面点「↷ 恢复」放回来 —— 这是用户明确要求的安全网。
+   */
   const undo = () => {
     const entry = popUndo(record.id);
     if (!entry) { toast('没有可撤销的操作了'); return; }
-    persist(r => {
-      const marks = { ...r.marks };
-      for (const c of entry.changes) {
-        const row = { ...(marks[c.studentId] || {}) };
-        if (c.prev === null) delete row[c.poemId];
-        else row[c.poemId] = c.prev;
-        marks[c.studentId] = row;
-      }
-      return { ...r, marks };
+    const before = fresh().marks;
+    pushRedo(record.id, buildRedoEntry(before, entry));
+    persist(r => ({
+      ...r,
+      marks: writeMarkValues(r.marks, entry.changes.map(c => ({ studentId: c.studentId, poemId: c.poemId, value: c.prev }))),
+    }));
+    syncDepths();
+    toast(`↶ 已撤销：${entry.label}　→ 点「↷ 恢复」可放回来`);
+  };
+
+  /**
+   * 恢复被撤销掉的那一步。
+   * 只把「仍然停在撤销后状态」的格子放回去:撤销之后你又重新标记过的格子保持不动,
+   * 宁可少恢复几格,也不覆盖你后来的操作。
+   */
+  const redo = () => {
+    const entry = popRedo(record.id);
+    if (!entry) { toast('没有可恢复的操作了'); return; }
+    const cur = fresh().marks;
+    const { items, skipped } = planRedo(cur, entry);
+    if (!items.length) {
+      syncDepths();
+      toast(skipped ? `这 ${skipped} 格你后来重新标过，就保持现在的` : '没有可恢复的内容了');
+      return;
+    }
+    // 恢复 = 把撤销再倒回去,所以顺手压一条新的撤销记录,还能再撤回来
+    pushUndo(record.id, {
+      at: new Date().toISOString(),
+      label: entry.label,
+      changes: items.map(it => ({ studentId: it.studentId, poemId: it.poemId, prev: cur[it.studentId]?.[it.poemId] || null })),
     });
-    setUndoDepth(getUndoStack(record.id).length);
-    toast(`↶ 已撤销：${entry.label}`);
+    persist(r => ({ ...r, marks: writeMarkValues(r.marks, items) }));
+    syncDepths();
+    toast(skipped
+      ? `↷ 已恢复：${entry.label}（${skipped} 格你后来改过，保持现状）`
+      : `↷ 已恢复：${entry.label}`);
   };
 
   /** 保存某格的错字 */
@@ -1153,10 +1190,21 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
             </div>
           )}
 
-          {tab !== 'stats' && tab !== 'quiz' && undoDepth > 0 && (
+          {tab !== 'stats' && tab !== 'quiz' && (undoDepth > 0 || redoDepth > 0) && (
             <div className="rc-undo-bar">
-              <span>💡 连点错了？可以逐步撤销（还可撤销 {undoDepth} 步）</span>
-              <button className="btn btn-small btn-outline" onClick={undo}>↶ 撤销一步</button>
+              <span>
+                {redoDepth > 0
+                  ? `↷ 刚撤销过 ${redoDepth} 步 —— 点「恢复」就能原样放回来，不会丢数据`
+                  : `💡 连点错了？可以逐步撤销（还可撤销 ${undoDepth} 步），撤销后也能恢复`}
+              </span>
+              <span className="rc-undo-pair">
+                <button className="btn btn-small btn-outline" disabled={undoDepth === 0} onClick={undo}>
+                  ↶ 撤销一步{undoDepth > 0 ? `(${undoDepth})` : ''}
+                </button>
+                {redoDepth > 0 && (
+                  <button className="btn btn-small btn-primary" onClick={redo}>↷ 恢复一步</button>
+                )}
+              </span>
             </div>
           )}
 
@@ -1189,6 +1237,8 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
               onEditTypo={(studentId, poemId) => setTypoTarget({ studentId, poemId })}
               onUndo={undo}
               undoDepth={undoDepth}
+              onRedo={redo}
+              redoDepth={redoDepth}
               toast={toast}
             />
           )}
@@ -1366,7 +1416,7 @@ function ClassDetail({ record, onClose, onChanged, toast, openQr, initialTab = '
    进度矩阵
    ============================================================ */
 
-function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBulkSet, onQuickCheck, onEditTypo, onUndo, undoDepth, toast }: {
+function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBulkSet, onQuickCheck, onEditTypo, onUndo, undoDepth, onRedo, redoDepth, toast }: {
   record: ReciteRecord;
   poems: RecitePoem[];
   students: { st: ReciteStudent; passed: number; redo: number; left: number; total: number; counted: boolean }[];
@@ -1378,6 +1428,8 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
   onEditTypo: (studentId: string, poemId: string) => void;
   onUndo: () => void;
   undoDepth: number;
+  onRedo: () => void;
+  redoDepth: number;
   toast: Props['toast'];
 }) {
   return (
@@ -1408,9 +1460,16 @@ function MatrixView({ record, poems, students, brush, setBrush, onSetMark, onBul
             );
           })}
         </span>
-        <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}>
-          ↶ 撤销{undoDepth > 0 ? `(${undoDepth})` : ''}
-        </button>
+        {/* 撤销 / 恢复成对出现：成对包在一个 nowrap 容器里，窄屏只会整组换行，不会把两个按钮拆散。
+            「恢复」只在真的撤销过东西之后才出现，平时不占地方。 */}
+        <span className="rc-undo-pair">
+          <button className="btn btn-small btn-outline rc-undo-inline" disabled={undoDepth === 0} onClick={onUndo}>
+            ↶ 撤销{undoDepth > 0 ? `(${undoDepth})` : ''}
+          </button>
+          {redoDepth > 0 && (
+            <button className="btn btn-small btn-primary rc-redo-inline" onClick={onRedo}>↷ 恢复</button>
+          )}
+        </span>
       </div>
       <p className="hint" style={{ marginBottom: 10 }}>
         先选状态，再点格子标记。点学生姓名可把该生整行标为所选状态；点篇名进入快速抽查；

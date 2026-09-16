@@ -343,7 +343,7 @@ export function clearAll() {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(UNDO_PREFIX)) doomed.push(k);
+      if (k && (k.startsWith(UNDO_PREFIX) || k.startsWith(REDO_PREFIX))) doomed.push(k);
     }
     for (const k of doomed) localStorage.removeItem(k);
   } catch { /* ignore */ }
@@ -740,9 +740,129 @@ export function popUndo(recordId: string): UndoEntry | undefined {
   return last;
 }
 
+/** 清掉这个班的撤销栈 + 恢复栈(删除班级时用,别只清一个) */
 export function clearUndo(recordId: string) {
   writeUndoStack(recordId, []);
+  writeRedoStack(recordId, []);
 }
+
+/* ===== 背诵模块 · 恢复栈(撤销的反向操作,防止误点撤销后回不来) =====
+ *
+ * 用户反馈:「有时候我会不小心点到那个撤销,但是又回不去了。」
+ * 所以每次撤销时,顺手把那一步「撤销前的样子」记进恢复栈;
+ * 点「↷ 恢复」就能原样放回去,放回去之后还能再撤销,可以来回。
+ *
+ * 与撤销栈的关键区别:恢复栈**不**因为新的标记动作而作废,
+ * 而是在恢复那一刻逐格比对 —— 撤销之后你又重新标记过的那几格
+ * 保持你现在的值不动,只把「仍然停在撤销后状态」的格子放回去。
+ * 宁可少恢复几格,也绝不覆盖你后来的新操作。
+ */
+
+const REDO_PREFIX = 'teacher_recite_redo_';
+
+export interface RedoChange {
+  studentId: string;
+  poemId: string;
+  /** 撤销之前那一格长什么样 —— 恢复时写回它 */
+  next: ReciteMark | null;
+  /** 撤销之后那一格长什么样 —— 用来判断这一格有没有被你重新动过 */
+  afterUndo: ReciteMark | null;
+}
+
+export interface RedoEntry {
+  at: string;
+  label: string;
+  changes: RedoChange[];
+}
+
+/** 两格内容是否一样(比状态和日期,不比「最近抽查时间」这种随时会变的字段) */
+export function sameMark(a?: ReciteMark | null, b?: ReciteMark | null): boolean {
+  const key = (m?: ReciteMark | null) => m
+    ? [m.status, m.reciteDate || '', m.writeDate || '', m.note || '', (m.typos || []).join('\u0001')].join('|')
+    : '';
+  return key(a) === key(b);
+}
+
+/** 把若干格写成指定值;value 为 null 表示删掉这一格(原来就没有记录) */
+export function writeMarkValues(
+  marks: Record<string, Record<string, ReciteMark>>,
+  items: { studentId: string; poemId: string; value: ReciteMark | null }[],
+): Record<string, Record<string, ReciteMark>> {
+  const next = { ...marks };
+  for (const it of items) {
+    const row = { ...(next[it.studentId] || {}) };
+    if (it.value === null) delete row[it.poemId];
+    else row[it.poemId] = it.value;
+    next[it.studentId] = row;
+  }
+  return next;
+}
+
+/** 撤销的那一刻,把「撤销前这些格长什么样」记成一条恢复记录 */
+export function buildRedoEntry(
+  marks: Record<string, Record<string, ReciteMark>>,
+  from: UndoEntry,
+): RedoEntry {
+  return {
+    at: new Date().toISOString(),
+    label: from.label,
+    changes: from.changes.map(c => ({
+      studentId: c.studentId,
+      poemId: c.poemId,
+      next: marks[c.studentId]?.[c.poemId] || null,
+      afterUndo: c.prev,
+    })),
+  };
+}
+
+/**
+ * 恢复之前的「挑格子」:只挑那些**仍然停在撤销后状态**的格子。
+ * 你后来重新标记过的格子会被跳过(skipped 计数),保持你现在的值。
+ */
+export function planRedo(
+  marks: Record<string, Record<string, ReciteMark>>,
+  from: RedoEntry,
+): { items: { studentId: string; poemId: string; value: ReciteMark | null }[]; skipped: number } {
+  const items: { studentId: string; poemId: string; value: ReciteMark | null }[] = [];
+  let skipped = 0;
+  for (const c of from.changes) {
+    const cur = marks[c.studentId]?.[c.poemId] || null;
+    if (!sameMark(cur, c.afterUndo)) { skipped++; continue; }
+    items.push({ studentId: c.studentId, poemId: c.poemId, value: c.next });
+  }
+  return { items, skipped };
+}
+
+export function getRedoStack(recordId: string): RedoEntry[] {
+  try {
+    const raw = localStorage.getItem(REDO_PREFIX + recordId);
+    if (raw) return JSON.parse(raw) as RedoEntry[];
+  } catch { /* ignore */ }
+  return [];
+}
+
+function writeRedoStack(recordId: string, stack: RedoEntry[]) {
+  try {
+    if (!stack.length) localStorage.removeItem(REDO_PREFIX + recordId);
+    else localStorage.setItem(REDO_PREFIX + recordId, JSON.stringify(stack.slice(-UNDO_MAX)));
+  } catch { /* ignore */ }
+}
+
+export function pushRedo(recordId: string, entry: RedoEntry) {
+  const stack = getRedoStack(recordId);
+  stack.push(entry);
+  writeRedoStack(recordId, stack);
+}
+
+export function popRedo(recordId: string): RedoEntry | undefined {
+  const stack = getRedoStack(recordId);
+  const last = stack.pop();
+  writeRedoStack(recordId, stack);
+  return last;
+}
+
+/* 注:没有单独的 clearRedo —— 恢复栈刻意不因新的标记动作作废(靠 planRedo 逐格比对兜底),
+   要整条清掉只有两种场合:删除班级、清空全部数据,两个都走 clearUndo / clearAll。 */
 
 /* ===== 背诵模块 · 加权随机点名 ===== */
 
